@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>🔥 Arena Click</title>
+    <title>🔥 The Arena</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
             background: #0a0a0f;
             color: #fff;
@@ -18,77 +18,157 @@
             align-items: center;
             justify-content: center;
             overflow: hidden;
+            user-select: none;
         }
+
+        /* ── Loading screen ── */
+        #loading {
+            position: fixed;
+            inset: 0;
+            background: #0a0a0f;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3rem;
+            z-index: 100;
+            animation: fadeOut 0.4s ease 1.2s forwards;
+        }
+        @keyframes fadeOut {
+            to { opacity: 0; pointer-events: none; }
+        }
+
+        /* ── Coins ── */
         .coins-display {
-            font-size: 3.5rem;
+            font-size: 3.2rem;
             font-weight: 900;
             background: linear-gradient(135deg, #FFD700, #FF6B35);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin-bottom: 0.4rem;
+            background-clip: text;
+            margin-bottom: 0.3rem;
+            transition: transform 0.05s;
+        }
+        .coins-display.bump {
+            transform: scale(1.08);
         }
         .coins-label {
-            color: #888;
-            font-size: 0.85rem;
+            color: #555;
+            font-size: 0.75rem;
             letter-spacing: 3px;
             text-transform: uppercase;
-            margin-bottom: 2.5rem;
+            margin-bottom: 2.8rem;
         }
+
+        /* ── Tap button ── */
         .tap-btn {
-            width: 210px;
-            height: 210px;
+            width: 200px;
+            height: 200px;
             border-radius: 50%;
             border: none;
-            background: radial-gradient(circle at 30% 30%, #FF6B35, #FF0080, #7B2FFF);
-            box-shadow: 0 0 70px rgba(255, 107, 53, 0.45);
+            background: radial-gradient(circle at 35% 35%,
+                #FF6B35, #FF0080, #7B2FFF);
+            box-shadow:
+                0 0 60px rgba(255, 107, 53, 0.4),
+                0 0 120px rgba(123, 47, 255, 0.2);
             cursor: pointer;
-            font-size: 5rem;
-            transition: transform 0.08s, box-shadow 0.08s;
+            font-size: 4.5rem;
+            transition: transform 0.07s, box-shadow 0.07s;
             -webkit-tap-highlight-color: transparent;
-            user-select: none;
+            position: relative;
         }
         .tap-btn:active {
-            transform: scale(0.91);
-            box-shadow: 0 0 30px rgba(255, 107, 53, 0.25);
+            transform: scale(0.90);
+            box-shadow: 0 0 25px rgba(255, 107, 53, 0.2);
         }
+
+        /* Pulse ring */
+        .tap-btn::after {
+            content: '';
+            position: absolute;
+            inset: -8px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 107, 53, 0.3);
+            animation: pulse 2s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.5; }
+            50%       { transform: scale(1.07); opacity: 0.1; }
+        }
+
         .tap-hint {
-            margin-top: 1.5rem;
-            color: #444;
-            font-size: 0.75rem;
-            letter-spacing: 2px;
+            margin-top: 1.4rem;
+            color: #333;
+            font-size: 0.7rem;
+            letter-spacing: 3px;
         }
+
+        /* ── Floating +N ── */
         .float-coin {
             position: fixed;
             font-weight: 900;
-            font-size: 1.4rem;
+            font-size: 1.5rem;
             color: #FFD700;
+            text-shadow: 0 0 10px rgba(255,215,0,0.6);
             pointer-events: none;
-            animation: floatUp 0.75s ease-out forwards;
+            animation: floatUp 0.8s ease-out forwards;
             z-index: 999;
         }
         @keyframes floatUp {
             0%   { opacity: 1; transform: translateY(0) scale(1); }
-            100% { opacity: 0; transform: translateY(-80px) scale(1.4); }
+            100% { opacity: 0; transform: translateY(-90px) scale(1.5); }
         }
+
+        /* ── Stats bar ── */
         .stats-bar {
             position: fixed;
             bottom: 0;
             width: 100%;
-            background: rgba(255,255,255,0.04);
-            backdrop-filter: blur(12px);
-            padding: 1rem 0 1.2rem;
+            background: rgba(255,255,255,0.03);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-top: 1px solid rgba(255,255,255,0.06);
+            padding: 0.9rem 0 1.1rem;
             display: flex;
             justify-content: space-around;
-            border-top: 1px solid rgba(255,255,255,0.07);
         }
         .stat-item { text-align: center; }
-        .stat-value { font-weight: 800; font-size: 1.1rem; }
-        .stat-label { color: #555; font-size: 0.65rem; letter-spacing: 1px; margin-top: 2px; }
+        .stat-value {
+            font-weight: 800;
+            font-size: 1.05rem;
+            color: #fff;
+        }
+        .stat-label {
+            color: #444;
+            font-size: 0.6rem;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            margin-top: 3px;
+        }
+
+        /* ── Error toast ── */
+        .toast {
+            position: fixed;
+            top: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255,50,50,0.9);
+            color: #fff;
+            padding: 0.6rem 1.2rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 200;
+        }
+        .toast.show { opacity: 1; }
     </style>
 </head>
 <body>
 
-<div class="coins-display" id="coinsDisplay">0</div>
+<div id="loading">🔥</div>
+<div class="toast" id="toast"></div>
+
+<div class="coins-display" id="coinsDisplay">—</div>
 <div class="coins-label">⚡ ARENA COINS</div>
 
 <button class="tap-btn" id="tapBtn" onclick="handleTap(event)">🔥</button>
@@ -104,91 +184,186 @@
         <div class="stat-label">TAPS</div>
     </div>
     <div class="stat-item">
-        <div class="stat-value" id="rankDisplay">#?</div>
+        <div class="stat-value" id="rankDisplay">#—</div>
         <div class="stat-label">RANK</div>
     </div>
 </div>
 
 <script>
-const SUPABASE_URL = 'https://vwgxfxthammtghqjhhzs.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ3Z3hmeHRoYW1tdGdocWpoaHpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3MDQ2OTEsImV4cCI6MjA5MTI4MDY5MX0.j3crSl25rS_yJa-68uBOEb0evzMHPs61wJl1YQsYJGs';
+// ════════════════════════════════════════════
+//  CONFIG — sostituisci con i tuoi valori!
+// ════════════════════════════════════════════
+const SUPABASE_URL  = 'https://XXXXXXXX.supabase.co';   // ← tua URL
+const SUPABASE_ANON = 'eyJhbGci...';                    // ← tua anon key
 
-const { createClient } = supabase;
-const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const HEADERS = {
+    'apikey': SUPABASE_ANON,
+    'Authorization': `Bearer ${SUPABASE_ANON}`,
+    'Content-Type': 'application/json'
+};
 
-let state = { coins: 0, tapPower: 1, taps: 0, pendingSync: 0, userId: null };
+// ════════════════════════════════════════════
+//  STATO LOCALE
+// ════════════════════════════════════════════
+let state = {
+    userId:      null,
+    coins:       0,
+    tapPower:    1,
+    taps:        0,
+    pending:     0,   // coins da sincronizzare
+    syncing:     false,
+};
 let syncTimer = null;
 
+// ════════════════════════════════════════════
+//  TELEGRAM WEBAPP
+// ════════════════════════════════════════════
 const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
-const urlParams = new URLSearchParams(window.location.search);
-state.userId = urlParams.get('uid') || tg.initDataUnsafe?.user?.id;
+// Leggi userId dalla URL (?uid=...) o da Telegram
+const params = new URLSearchParams(window.location.search);
+state.userId = params.get('uid') || tg.initDataUnsafe?.user?.id;
 
+// ════════════════════════════════════════════
+//  SUPABASE API
+// ════════════════════════════════════════════
+async function sbGet(path) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: HEADERS });
+    return r.ok ? r.json() : [];
+}
+
+async function sbRpc(fn, body) {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+        method: 'POST',
+        headers: HEADERS,
+        body: JSON.stringify(body)
+    });
+    return r.ok;
+}
+
+// ════════════════════════════════════════════
+//  CARICA DATI UTENTE
+// ════════════════════════════════════════════
 async function loadUser() {
-    if (!state.userId) return;
-    const { data } = await db.from('users')
-        .select('coins, tap_power')
-        .eq('id', state.userId)
-        .single();
-    if (data) {
-        state.coins = data.coins || 0;
-        state.tapPower = data.tap_power || 1;
-        updateUI();
-        loadRank();
+    if (!state.userId) {
+        showToast('User ID not found — open from Telegram bot');
+        return;
     }
+
+    const data = await sbGet(`users?id=eq.${state.userId}&select=coins,tap_power`);
+
+    if (!data || data.length === 0) {
+        showToast('User not found — send /start to the bot first');
+        return;
+    }
+
+    state.coins    = data[0].coins    || 0;
+    state.tapPower = data[0].tap_power || 1;
+
+    updateUI();
+    loadRank();
 }
 
 async function loadRank() {
-    const { data } = await db.from('users')
-        .select('id')
-        .order('coins', { ascending: false });
-    if (data) {
-        const rank = data.findIndex(u => String(u.id) === String(state.userId)) + 1;
-        document.getElementById('rankDisplay').textContent = rank > 0 ? `#${rank}` : '#?';
-    }
+    const data = await sbGet('users?select=id&order=coins.desc');
+    if (!data) return;
+    const rank = data.findIndex(u => String(u.id) === String(state.userId)) + 1;
+    document.getElementById('rankDisplay').textContent = rank > 0 ? `#${rank}` : '#?';
 }
 
+// ════════════════════════════════════════════
+//  TAP HANDLER
+// ════════════════════════════════════════════
 function handleTap(event) {
-    state.coins += state.tapPower;
-    state.taps += 1;
-    state.pendingSync += state.tapPower;
+    if (!state.userId) return;
+
+    state.coins   += state.tapPower;
+    state.taps    += 1;
+    state.pending += state.tapPower;
+
     updateUI();
-    spawnFloatingCoin(event);
+    animateCoin(event);
+    bumpCoins();
+
+    // Sync al DB ogni 1.5s — batch per efficienza
     clearTimeout(syncTimer);
-    syncTimer = setTimeout(syncToDb, 2000);
+    syncTimer = setTimeout(syncToDb, 1500);
 }
 
 async function syncToDb() {
-    if (!state.userId || state.pendingSync === 0) return;
-    const toSync = state.pendingSync;
-    state.pendingSync = 0;
-    await db.rpc('add_coins', {
+    if (state.pending === 0 || state.syncing) return;
+    state.syncing = true;
+    const amount = state.pending;
+    state.pending = 0;
+
+    const ok = await sbRpc('add_coins', {
         user_id: parseInt(state.userId),
-        amount: toSync
+        amount:  amount
     });
+
+    if (!ok) {
+        // Se fallisce rimetti i coins in pending per il prossimo sync
+        state.pending += amount;
+        showToast('Sync failed — will retry');
+    }
+
+    state.syncing = false;
 }
 
+// ════════════════════════════════════════════
+//  UI
+// ════════════════════════════════════════════
 function updateUI() {
-    document.getElementById('coinsDisplay').textContent = state.coins.toLocaleString('en-US');
-    document.getElementById('powerDisplay').textContent = `x${state.tapPower}`;
-    document.getElementById('tapsDisplay').textContent = state.taps.toLocaleString('en-US');
+    document.getElementById('coinsDisplay').textContent =
+        state.coins.toLocaleString('en-US');
+    document.getElementById('powerDisplay').textContent =
+        `x${state.tapPower}`;
+    document.getElementById('tapsDisplay').textContent =
+        state.taps.toLocaleString('en-US');
 }
 
-function spawnFloatingCoin(event) {
+function bumpCoins() {
+    const el = document.getElementById('coinsDisplay');
+    el.classList.remove('bump');
+    void el.offsetWidth; // reflow
+    el.classList.add('bump');
+    setTimeout(() => el.classList.remove('bump'), 100);
+}
+
+function animateCoin(event) {
     const el = document.createElement('div');
     el.className = 'float-coin';
     el.textContent = `+${state.tapPower}`;
-    const x = event.clientX || window.innerWidth / 2;
-    const y = event.clientY || window.innerHeight / 2;
-    el.style.left = `${x - 20 + (Math.random() - 0.5) * 40}px`;
-    el.style.top = `${y - 20}px`;
+
+    const x = (event.clientX ?? window.innerWidth  / 2);
+    const y = (event.clientY ?? window.innerHeight / 2);
+    el.style.left = `${x - 15 + (Math.random() - 0.5) * 30}px`;
+    el.style.top  = `${y - 10}px`;
+
     document.body.appendChild(el);
-    setTimeout(() => el.remove(), 750);
+    setTimeout(() => el.remove(), 800);
 }
 
-window.addEventListener('beforeunload', () => syncToDb());
+function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ════════════════════════════════════════════
+//  SYNC FINALE quando l'utente chiude
+// ════════════════════════════════════════════
+window.addEventListener('beforeunload', syncToDb);
+tg.onEvent('viewportChanged', () => {
+    if (!tg.isExpanded) syncToDb();
+});
+
+// ════════════════════════════════════════════
+//  START
+// ════════════════════════════════════════════
 loadUser();
 </script>
 </body>
