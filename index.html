@@ -1,18 +1,13 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>🔥 The Arena</title>
-    
-    <!-- Telegram WebApp SDK -->
+    <title>🔥 Arena Click</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <!-- Supabase SDK (CDN leggero) -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-    
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        
         body {
             background: #0a0a0f;
             color: #fff;
@@ -24,84 +19,71 @@
             justify-content: center;
             overflow: hidden;
         }
-        
         .coins-display {
-            font-size: 3rem;
+            font-size: 3.5rem;
             font-weight: 900;
             background: linear-gradient(135deg, #FFD700, #FF6B35);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin-bottom: 0.5rem;
-            transition: transform 0.1s;
+            margin-bottom: 0.4rem;
         }
-        
         .coins-label {
             color: #888;
-            font-size: 0.9rem;
-            letter-spacing: 2px;
+            font-size: 0.85rem;
+            letter-spacing: 3px;
             text-transform: uppercase;
-            margin-bottom: 3rem;
+            margin-bottom: 2.5rem;
         }
-        
-        /* Il pulsante tap principale */
         .tap-btn {
-            width: 200px;
-            height: 200px;
+            width: 210px;
+            height: 210px;
             border-radius: 50%;
             border: none;
             background: radial-gradient(circle at 30% 30%, #FF6B35, #FF0080, #7B2FFF);
-            box-shadow: 0 0 60px rgba(255, 107, 53, 0.5);
+            box-shadow: 0 0 70px rgba(255, 107, 53, 0.45);
             cursor: pointer;
             font-size: 5rem;
             transition: transform 0.08s, box-shadow 0.08s;
             -webkit-tap-highlight-color: transparent;
             user-select: none;
         }
-        
         .tap-btn:active {
-            transform: scale(0.92);
-            box-shadow: 0 0 30px rgba(255, 107, 53, 0.3);
+            transform: scale(0.91);
+            box-shadow: 0 0 30px rgba(255, 107, 53, 0.25);
         }
-        
         .tap-hint {
             margin-top: 1.5rem;
-            color: #555;
-            font-size: 0.8rem;
+            color: #444;
+            font-size: 0.75rem;
+            letter-spacing: 2px;
         }
-        
-        /* Floating +1 animation */
         .float-coin {
             position: fixed;
             font-weight: 900;
-            font-size: 1.5rem;
+            font-size: 1.4rem;
             color: #FFD700;
             pointer-events: none;
-            animation: floatUp 0.8s ease-out forwards;
+            animation: floatUp 0.75s ease-out forwards;
             z-index: 999;
         }
-        
         @keyframes floatUp {
             0%   { opacity: 1; transform: translateY(0) scale(1); }
-            100% { opacity: 0; transform: translateY(-80px) scale(1.3); }
+            100% { opacity: 0; transform: translateY(-80px) scale(1.4); }
         }
-        
         .stats-bar {
             position: fixed;
             bottom: 0;
             width: 100%;
-            background: rgba(255,255,255,0.05);
-            backdrop-filter: blur(10px);
-            padding: 1rem;
+            background: rgba(255,255,255,0.04);
+            backdrop-filter: blur(12px);
+            padding: 1rem 0 1.2rem;
             display: flex;
             justify-content: space-around;
+            border-top: 1px solid rgba(255,255,255,0.07);
         }
-        
-        .stat-item {
-            text-align: center;
-        }
-        
-        .stat-value { font-weight: 700; font-size: 1.1rem; }
-        .stat-label { color: #666; font-size: 0.7rem; }
+        .stat-item { text-align: center; }
+        .stat-value { font-weight: 800; font-size: 1.1rem; }
+        .stat-label { color: #555; font-size: 0.65rem; letter-spacing: 1px; margin-top: 2px; }
     </style>
 </head>
 <body>
@@ -128,43 +110,28 @@
 </div>
 
 <script>
-// ─── Config ───────────────────────────────────────────────
 const SUPABASE_URL = 'https://vwgxfxthammtghqjhhzs.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ3Z3hmeHRoYW1tdGdocWpoaHpzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTcwNDY5MSwiZXhwIjoyMDkxMjgwNjkxfQ.czGJVjrdhQc6cY0IrAL8Ah9RnKZZjW7-UzS4r4gX5nU';  // anon key qui, non service!
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ3Z3hmeHRoYW1tdGdocWpoaHpzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTcwNDY5MSwiZXhwIjoyMDkxMjgwNjkxfQ.czGJVjrdhQc6cY0IrAL8Ah9RnKZZjW7-UzS4r4gX5nU';
 
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// ─── Stato locale ─────────────────────────────────────────
-let state = {
-    coins: 0,
-    tapPower: 1,
-    taps: 0,
-    pendingSync: 0,  // coins da sincronizzare
-    userId: null,
-};
-
+let state = { coins: 0, tapPower: 1, taps: 0, pendingSync: 0, userId: null };
 let syncTimer = null;
 
-// ─── Init Telegram WebApp ─────────────────────────────────
 const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
-// Prendi userId dal bot (passato come query param)
 const urlParams = new URLSearchParams(window.location.search);
 state.userId = urlParams.get('uid') || tg.initDataUnsafe?.user?.id;
 
-// ─── Carica dati utente ───────────────────────────────────
 async function loadUser() {
     if (!state.userId) return;
-    
-    const { data } = await db
-        .from('users')
+    const { data } = await db.from('users')
         .select('coins, tap_power')
         .eq('id', state.userId)
         .single();
-    
     if (data) {
         state.coins = data.coins || 0;
         state.tapPower = data.tap_power || 1;
@@ -174,87 +141,55 @@ async function loadUser() {
 }
 
 async function loadRank() {
-    const { data } = await db
-        .from('leaderboard')
+    const { data } = await db.from('users')
         .select('id')
         .order('coins', { ascending: false });
-    
     if (data) {
         const rank = data.findIndex(u => String(u.id) === String(state.userId)) + 1;
         document.getElementById('rankDisplay').textContent = rank > 0 ? `#${rank}` : '#?';
     }
 }
 
-// ─── Tap Handler ──────────────────────────────────────────
 function handleTap(event) {
-    // Aggiorna stato locale (istantaneo, no lag)
     state.coins += state.tapPower;
     state.taps += 1;
     state.pendingSync += state.tapPower;
-    
     updateUI();
     spawnFloatingCoin(event);
-    
-    // Debounce sync al DB ogni 2 secondi
     clearTimeout(syncTimer);
     syncTimer = setTimeout(syncToDb, 2000);
 }
 
-// ─── Sync al DB (batch, efficiente) ──────────────────────
 async function syncToDb() {
     if (!state.userId || state.pendingSync === 0) return;
-    
     const toSync = state.pendingSync;
     state.pendingSync = 0;
-    
-    // Usa RPC per increment atomico (evita race condition)
     await db.rpc('add_coins', {
         user_id: parseInt(state.userId),
         amount: toSync
     });
 }
 
-// ─── UI ───────────────────────────────────────────────────
 function updateUI() {
-    document.getElementById('coinsDisplay').textContent = 
-        state.coins.toLocaleString('it-IT');
-    document.getElementById('powerDisplay').textContent = 
-        `x${state.tapPower}`;
-    document.getElementById('tapsDisplay').textContent = 
-        state.taps.toLocaleString('it-IT');
+    document.getElementById('coinsDisplay').textContent = state.coins.toLocaleString('en-US');
+    document.getElementById('powerDisplay').textContent = `x${state.tapPower}`;
+    document.getElementById('tapsDisplay').textContent = state.taps.toLocaleString('en-US');
 }
 
 function spawnFloatingCoin(event) {
     const el = document.createElement('div');
     el.className = 'float-coin';
     el.textContent = `+${state.tapPower}`;
-    
-    // Posizione casuale vicino al tap
     const x = event.clientX || window.innerWidth / 2;
     const y = event.clientY || window.innerHeight / 2;
     el.style.left = `${x - 20 + (Math.random() - 0.5) * 40}px`;
     el.style.top = `${y - 20}px`;
-    
     document.body.appendChild(el);
-    setTimeout(() => el.remove(), 800);
+    setTimeout(() => el.remove(), 750);
 }
 
-// ─── Cleanup al chiudere ──────────────────────────────────
 window.addEventListener('beforeunload', () => syncToDb());
-tg.onEvent('viewportChanged', () => {
-    if (!tg.isExpanded) syncToDb();
-});
-
-// ─── Start ────────────────────────────────────────────────
 loadUser();
 </script>
 </body>
 </html>
-🔧 Funzione RPC Supabase (aggiungi nel SQL Editor)
--- Increment atomico sicuro (no race condition)
-CREATE OR REPLACE FUNCTION add_coins(user_id BIGINT, amount BIGINT)
-RETURNS void AS $$
-BEGIN
-    UPDATE users SET coins = coins + amount WHERE id = user_id;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
