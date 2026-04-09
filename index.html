@@ -1,365 +1,923 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>🔥 The Arena</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>The Arena</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════
+   ARENA DESIGN SYSTEM
+═══════════════════════════════════════════ */
+:root {
+  --gold:        #D4AF37;
+  --gold-bright: #FFD700;
+  --gold-dark:   #8B6914;
+  --crimson:     #8B0000;
+  --crimson-hot: #FF2020;
+  --bg:          #080608;
+  --bg2:         #0f0a0f;
+  --surface:     rgba(212,175,55,0.06);
+  --border:      rgba(212,175,55,0.18);
+  --text:        #E8D5A3;
+  --text-dim:    #6B5A3A;
+}
 
-        body {
-            background: #0a0a0f;
-            color: #fff;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-            user-select: none;
-        }
+* { margin:0; padding:0; box-sizing:border-box; }
 
-        /* ── Loading screen ── */
-        #loading {
-            position: fixed;
-            inset: 0;
-            background: #0a0a0f;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 3rem;
-            z-index: 100;
-            animation: fadeOut 0.4s ease 1.2s forwards;
-        }
-        @keyframes fadeOut {
-            to { opacity: 0; pointer-events: none; }
-        }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Rajdhani', sans-serif;
+  min-height: 100vh;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
 
-        /* ── Coins ── */
-        .coins-display {
-            font-size: 3.2rem;
-            font-weight: 900;
-            background: linear-gradient(135deg, #FFD700, #FF6B35);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            margin-bottom: 0.3rem;
-            transition: transform 0.05s;
-        }
-        .coins-display.bump {
-            transform: scale(1.08);
-        }
-        .coins-label {
-            color: #555;
-            font-size: 0.75rem;
-            letter-spacing: 3px;
-            text-transform: uppercase;
-            margin-bottom: 2.8rem;
-        }
+/* ═══ BACKGROUND FX ═══ */
+.bg-grid {
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(212,175,55,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(212,175,55,0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
 
-        /* ── Tap button ── */
-        .tap-btn {
-            width: 200px;
-            height: 200px;
-            border-radius: 50%;
-            border: none;
-            background: radial-gradient(circle at 35% 35%,
-                #FF6B35, #FF0080, #7B2FFF);
-            box-shadow:
-                0 0 60px rgba(255, 107, 53, 0.4),
-                0 0 120px rgba(123, 47, 255, 0.2);
-            cursor: pointer;
-            font-size: 4.5rem;
-            transition: transform 0.07s, box-shadow 0.07s;
-            -webkit-tap-highlight-color: transparent;
-            position: relative;
-        }
-        .tap-btn:active {
-            transform: scale(0.90);
-            box-shadow: 0 0 25px rgba(255, 107, 53, 0.2);
-        }
+.bg-glow {
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 60% 40% at 50% 0%, rgba(139,0,0,0.25) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 30% at 50% 100%, rgba(212,175,55,0.1) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
 
-        /* Pulse ring */
-        .tap-btn::after {
-            content: '';
-            position: absolute;
-            inset: -8px;
-            border-radius: 50%;
-            border: 2px solid rgba(255, 107, 53, 0.3);
-            animation: pulse 2s ease-in-out infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); opacity: 0.5; }
-            50%       { transform: scale(1.07); opacity: 0.1; }
-        }
+/* ═══ LOADING ═══ */
+#loading {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  transition: opacity 0.6s ease;
+}
+#loading.hide { opacity: 0; pointer-events: none; }
 
-        .tap-hint {
-            margin-top: 1.4rem;
-            color: #333;
-            font-size: 0.7rem;
-            letter-spacing: 3px;
-        }
+.loading-logo {
+  font-family: 'Cinzel Decorative', serif;
+  font-size: 1.6rem;
+  color: var(--gold);
+  letter-spacing: 4px;
+  animation: loadPulse 1s ease-in-out infinite;
+}
+.loading-sub {
+  font-size: 0.7rem;
+  letter-spacing: 6px;
+  color: var(--text-dim);
+  margin-top: 0.5rem;
+  text-transform: uppercase;
+}
+.loading-bar-wrap {
+  width: 140px;
+  height: 2px;
+  background: rgba(212,175,55,0.15);
+  margin-top: 2rem;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.loading-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--gold-dark), var(--gold-bright));
+  animation: loadBar 1.2s ease forwards;
+}
+@keyframes loadBar { from { width:0 } to { width:100% } }
+@keyframes loadPulse {
+  0%,100% { opacity:1; text-shadow: 0 0 20px rgba(212,175,55,0.5); }
+  50%      { opacity:0.6; text-shadow: none; }
+}
 
-        /* ── Floating +N ── */
-        .float-coin {
-            position: fixed;
-            font-weight: 900;
-            font-size: 1.5rem;
-            color: #FFD700;
-            text-shadow: 0 0 10px rgba(255,215,0,0.6);
-            pointer-events: none;
-            animation: floatUp 0.8s ease-out forwards;
-            z-index: 999;
-        }
-        @keyframes floatUp {
-            0%   { opacity: 1; transform: translateY(0) scale(1); }
-            100% { opacity: 0; transform: translateY(-90px) scale(1.5); }
-        }
+/* ═══ MAIN LAYOUT ═══ */
+#app {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: 90px;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+#app.show { opacity: 1; }
 
-        /* ── Stats bar ── */
-        .stats-bar {
-            position: fixed;
-            bottom: 0;
-            width: 100%;
-            background: rgba(255,255,255,0.03);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border-top: 1px solid rgba(255,255,255,0.06);
-            padding: 0.9rem 0 1.1rem;
-            display: flex;
-            justify-content: space-around;
-        }
-        .stat-item { text-align: center; }
-        .stat-value {
-            font-weight: 800;
-            font-size: 1.05rem;
-            color: #fff;
-        }
-        .stat-label {
-            color: #444;
-            font-size: 0.6rem;
-            letter-spacing: 1.5px;
-            text-transform: uppercase;
-            margin-top: 3px;
-        }
+/* ═══ TOP BAR ═══ */
+.top-bar {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.2rem 0.5rem;
+}
 
-        /* ── Error toast ── */
-        .toast {
-            position: fixed;
-            top: 1rem;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(255,50,50,0.9);
-            color: #fff;
-            padding: 0.6rem 1.2rem;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            opacity: 0;
-            transition: opacity 0.3s;
-            z-index: 200;
-        }
-        .toast.show { opacity: 1; }
-    </style>
+.arena-logo {
+  font-family: 'Cinzel Decorative', serif;
+  font-size: 0.95rem;
+  color: var(--gold);
+  letter-spacing: 3px;
+  text-shadow: 0 0 20px rgba(212,175,55,0.4);
+}
+
+.rank-badge {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 0.3rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  color: var(--gold);
+  letter-spacing: 1px;
+  font-weight: 700;
+}
+
+/* ═══ COINS DISPLAY ═══ */
+.coins-wrap {
+  margin-top: 0.8rem;
+  text-align: center;
+}
+
+.coins-amount {
+  font-family: 'Cinzel Decorative', serif;
+  font-size: 2.8rem;
+  font-weight: 900;
+  color: var(--gold-bright);
+  text-shadow:
+    0 0 30px rgba(255,215,0,0.5),
+    0 0 60px rgba(255,215,0,0.2);
+  transition: transform 0.06s;
+  display: block;
+  line-height: 1;
+}
+.coins-amount.bump {
+  transform: scale(1.1);
+  text-shadow:
+    0 0 40px rgba(255,215,0,0.8),
+    0 0 80px rgba(255,215,0,0.4);
+}
+
+.coins-label {
+  font-size: 0.65rem;
+  letter-spacing: 5px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin-top: 0.2rem;
+}
+
+/* ═══ COMBO DISPLAY ═══ */
+.combo-wrap {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.5rem;
+}
+
+.combo-badge {
+  background: linear-gradient(135deg, var(--crimson), #FF4500);
+  border: 1px solid rgba(255,32,32,0.4);
+  padding: 0.25rem 1rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #fff;
+  text-transform: uppercase;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 0.2s, transform 0.2s;
+  box-shadow: 0 0 20px rgba(255,32,32,0.4);
+}
+.combo-badge.show {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* ═══ ENERGY BAR ═══ */
+.energy-section {
+  width: calc(100% - 2.4rem);
+  margin-top: 0.8rem;
+}
+
+.energy-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin-bottom: 0.4rem;
+}
+.energy-val { color: var(--gold); font-weight: 700; }
+
+.energy-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(212,175,55,0.08);
+  border-radius: 3px;
+  border: 1px solid rgba(212,175,55,0.12);
+  overflow: hidden;
+  position: relative;
+}
+
+.energy-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--gold-dark), var(--gold-bright));
+  border-radius: 3px;
+  transition: width 0.15s ease;
+  position: relative;
+}
+.energy-fill::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: -2px;
+  width: 8px;
+  height: 10px;
+  background: white;
+  border-radius: 2px;
+  opacity: 0.7;
+  box-shadow: 0 0 6px var(--gold-bright);
+}
+
+/* ═══ TAP ARENA BUTTON ═══ */
+.arena-ring {
+  margin-top: 1.6rem;
+  position: relative;
+  width: 220px;
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Rotating outer ring */
+.ring-outer {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--bg), var(--bg)) padding-box,
+    conic-gradient(
+      var(--gold-bright) 0deg,
+      transparent 90deg,
+      var(--gold) 180deg,
+      transparent 270deg,
+      var(--gold-bright) 360deg
+    ) border-box;
+  animation: rotateRing 4s linear infinite;
+}
+@keyframes rotateRing {
+  to { transform: rotate(360deg); }
+}
+
+/* Counter-rotating middle ring */
+.ring-mid {
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(212,175,55,0.15);
+  animation: rotateRing 6s linear infinite reverse;
+}
+
+/* Pulse glow */
+.ring-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 40px rgba(139,0,0,0.3), 0 0 80px rgba(139,0,0,0.1);
+  animation: glowPulse 2s ease-in-out infinite;
+}
+@keyframes glowPulse {
+  0%,100% { box-shadow: 0 0 40px rgba(139,0,0,0.3), 0 0 80px rgba(139,0,0,0.1); }
+  50%      { box-shadow: 0 0 60px rgba(212,175,55,0.4), 0 0 100px rgba(139,0,0,0.2); }
+}
+
+/* Main tap button */
+.tap-btn {
+  position: relative;
+  z-index: 2;
+  width: 170px;
+  height: 170px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  background: radial-gradient(circle at 35% 30%,
+    #3a1a00,
+    #1a0808,
+    #0a0505
+  );
+  box-shadow:
+    inset 0 2px 4px rgba(212,175,55,0.2),
+    inset 0 -2px 4px rgba(0,0,0,0.8),
+    0 0 0 2px rgba(212,175,55,0.3),
+    0 8px 32px rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 4px;
+  transition: transform 0.07s, box-shadow 0.07s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tap-btn:active {
+  transform: scale(0.88);
+  box-shadow:
+    inset 0 2px 8px rgba(0,0,0,0.9),
+    0 0 0 2px rgba(212,175,55,0.5),
+    0 0 20px rgba(212,175,55,0.3);
+}
+
+/* Sword icon SVG */
+.btn-icon {
+  font-size: 3.2rem;
+  line-height: 1;
+  filter: drop-shadow(0 0 8px rgba(212,175,55,0.6));
+  pointer-events: none;
+}
+
+.btn-power {
+  font-size: 0.65rem;
+  letter-spacing: 2px;
+  color: var(--gold);
+  font-weight: 700;
+  text-transform: uppercase;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* ═══ TAP HINT ═══ */
+.tap-hint {
+  margin-top: 1rem;
+  font-size: 0.65rem;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+/* ═══ PARTICLES ═══ */
+.particle {
+  position: fixed;
+  pointer-events: none;
+  z-index: 50;
+  border-radius: 50%;
+  animation: particleFly var(--dur, 0.8s) ease-out forwards;
+}
+@keyframes particleFly {
+  0%   { opacity:1; transform: translate(0,0) scale(1); }
+  100% { opacity:0; transform: translate(var(--tx,0), var(--ty,-80px)) scale(0); }
+}
+
+/* ═══ FLOATING COINS ═══ */
+.float-coin {
+  position: fixed;
+  pointer-events: none;
+  z-index: 60;
+  font-family: 'Cinzel Decorative', serif;
+  font-size: 1.3rem;
+  font-weight: 900;
+  color: var(--gold-bright);
+  text-shadow: 0 0 10px rgba(255,215,0,0.8);
+  animation: floatUp 0.9s ease-out forwards;
+}
+@keyframes floatUp {
+  0%   { opacity:1; transform: translateY(0) scale(1); }
+  60%  { opacity:1; }
+  100% { opacity:0; transform: translateY(-100px) scale(1.4); }
+}
+
+/* ═══ BOUNCING COIN ═══ */
+.bounce-coin {
+  position: fixed;
+  pointer-events: none;
+  z-index: 55;
+  font-size: 1.8rem;
+  animation: bounceCoin 0.7s cubic-bezier(0.36, 0.07, 0.19, 0.97) forwards;
+}
+@keyframes bounceCoin {
+  0%   { transform: translateY(0) scale(1); opacity:1; }
+  30%  { transform: translateY(-50px) scale(1.3); }
+  55%  { transform: translateY(-20px) scale(1.1); }
+  75%  { transform: translateY(-40px) scale(1.2); }
+  100% { transform: translateY(-120px) scale(0.8); opacity:0; }
+}
+
+/* ═══ STATS BAR ═══ */
+.stats-bar {
+  position: fixed;
+  bottom: 0;
+  width: 100%;
+  background: rgba(8,6,8,0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--border);
+  padding: 0.8rem 0 1rem;
+  display: flex;
+  justify-content: space-around;
+  z-index: 10;
+}
+
+.stat-item { text-align: center; }
+.stat-value {
+  font-family: 'Cinzel Decorative', serif;
+  font-size: 0.95rem;
+  color: var(--gold-bright);
+  text-shadow: 0 0 10px rgba(255,215,0,0.3);
+}
+.stat-label {
+  font-size: 0.55rem;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin-top: 3px;
+}
+
+/* ═══ SCREEN FLASH ═══ */
+.screen-flash {
+  position: fixed;
+  inset: 0;
+  background: var(--gold-bright);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 5;
+  animation: flash 0.15s ease-out;
+}
+@keyframes flash {
+  0%   { opacity: 0.08; }
+  100% { opacity: 0; }
+}
+
+/* ═══ TOAST ═══ */
+.toast {
+  position: fixed;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(139,0,0,0.9);
+  border: 1px solid rgba(255,32,32,0.3);
+  color: #fff;
+  padding: 0.5rem 1.2rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  letter-spacing: 1px;
+  opacity: 0;
+  transition: opacity 0.3s;
+  z-index: 200;
+  white-space: nowrap;
+}
+.toast.show { opacity: 1; }
+</style>
 </head>
 <body>
 
-<div id="loading">🔥</div>
+<div class="bg-grid"></div>
+<div class="bg-glow"></div>
 <div class="toast" id="toast"></div>
 
-<div class="coins-display" id="coinsDisplay">—</div>
-<div class="coins-label">⚡ ARENA COINS</div>
+<!-- LOADING -->
+<div id="loading">
+  <div class="loading-logo">THE ARENA</div>
+  <div class="loading-sub">Enter the battlefield</div>
+  <div class="loading-bar-wrap">
+    <div class="loading-bar"></div>
+  </div>
+</div>
 
-<button class="tap-btn" id="tapBtn" onclick="handleTap(event)">🔥</button>
-<div class="tap-hint">TAP TO EARN</div>
+<!-- APP -->
+<div id="app">
 
+  <!-- TOP BAR -->
+  <div class="top-bar">
+    <div class="arena-logo">⚔️ ARENA</div>
+    <div class="rank-badge" id="rankBadge"># —</div>
+  </div>
+
+  <!-- COINS -->
+  <div class="coins-wrap">
+    <span class="coins-amount" id="coinsDisplay">—</span>
+    <div class="coins-label">⚔ Arena Coins ⚔</div>
+  </div>
+
+  <!-- COMBO -->
+  <div class="combo-wrap">
+    <div class="combo-badge" id="comboBadge">⚡ COMBO x1</div>
+  </div>
+
+  <!-- ENERGY BAR -->
+  <div class="energy-section">
+    <div class="energy-header">
+      <span>⚡ Energy</span>
+      <span class="energy-val"><span id="energyVal">100</span>/100</span>
+    </div>
+    <div class="energy-track">
+      <div class="energy-fill" id="energyFill" style="width:100%"></div>
+    </div>
+  </div>
+
+  <!-- TAP BUTTON -->
+  <div class="arena-ring">
+    <div class="ring-outer"></div>
+    <div class="ring-mid"></div>
+    <div class="ring-glow"></div>
+    <button class="tap-btn" id="tapBtn" onclick="handleTap(event)">
+      <div class="btn-icon">⚔️</div>
+      <div class="btn-power" id="powerLabel">POWER x1</div>
+    </button>
+  </div>
+
+  <div class="tap-hint">TAP TO FIGHT</div>
+
+</div>
+
+<!-- STATS BAR -->
 <div class="stats-bar">
-    <div class="stat-item">
-        <div class="stat-value" id="powerDisplay">x1</div>
-        <div class="stat-label">POWER</div>
-    </div>
-    <div class="stat-item">
-        <div class="stat-value" id="tapsDisplay">0</div>
-        <div class="stat-label">TAPS</div>
-    </div>
-    <div class="stat-item">
-        <div class="stat-value" id="rankDisplay">#—</div>
-        <div class="stat-label">RANK</div>
-    </div>
+  <div class="stat-item">
+    <div class="stat-value" id="powerDisplay">x1</div>
+    <div class="stat-label">Power</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-value" id="tapsDisplay">0</div>
+    <div class="stat-label">Strikes</div>
+  </div>
+  <div class="stat-item">
+    <div class="stat-value" id="rankDisplay">#—</div>
+    <div class="stat-label">Rank</div>
+  </div>
 </div>
 
 <script>
 // ════════════════════════════════════════════
-//  CONFIG — sostituisci con i tuoi valori!
+//  ⚙️ CONFIG — SOSTITUISCI QUI
 // ════════════════════════════════════════════
-const SUPABASE_URL  = 'https://vwgxfxthammtghqjhhzs.supabase.co';   // ← tua URL
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ3Z3hmeHRoYW1tdGdocWpoaHpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3MDQ2OTEsImV4cCI6MjA5MTI4MDY5MX0.j3crSl25rS_yJa-68uBOEb0evzMHPs61wJl1YQsYJGs';                    // ← tua anon key
+const SUPABASE_URL  = 'https://XXXXXXXX.supabase.co';
+const SUPABASE_ANON = 'eyJhbGci...';
 
 const HEADERS = {
-    'apikey': SUPABASE_ANON,
-    'Authorization': `Bearer ${SUPABASE_ANON}`,
-    'Content-Type': 'application/json'
+  'apikey': SUPABASE_ANON,
+  'Authorization': `Bearer ${SUPABASE_ANON}`,
+  'Content-Type': 'application/json'
 };
 
 // ════════════════════════════════════════════
-//  STATO LOCALE
+//  STATE
 // ════════════════════════════════════════════
+const MAX_ENERGY = 100;
+const ENERGY_PER_TAP = 1;
+const ENERGY_REGEN_MS = 800; // 1 energia ogni 800ms
+
 let state = {
-    userId:      null,
-    coins:       0,
-    tapPower:    1,
-    taps:        0,
-    pending:     0,   // coins da sincronizzare
-    syncing:     false,
+  userId:   null,
+  coins:    0,
+  tapPower: 1,
+  taps:     0,
+  pending:  0,
+  syncing:  false,
+  energy:   MAX_ENERGY,
+
+  // Combo system
+  combo:        1,
+  comboTimer:   null,
+  lastTapTime:  0,
+  COMBO_WINDOW: 600, // ms tra tap per mantenere combo
+  MAX_COMBO:    10,
 };
-let syncTimer = null;
+
+let syncTimer     = null;
+let energyTimer   = null;
 
 // ════════════════════════════════════════════
-//  TELEGRAM WEBAPP
+//  TELEGRAM
 // ════════════════════════════════════════════
 const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
-// Leggi userId dalla URL (?uid=...) o da Telegram
-const params = new URLSearchParams(window.location.search);
-state.userId = params.get('uid') || tg.initDataUnsafe?.user?.id;
+const params  = new URLSearchParams(window.location.search);
+state.userId  = params.get('uid') || tg.initDataUnsafe?.user?.id;
 
 // ════════════════════════════════════════════
-//  SUPABASE API
+//  SUPABASE
 // ════════════════════════════════════════════
 async function sbGet(path) {
+  try {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: HEADERS });
     return r.ok ? r.json() : [];
+  } catch { return []; }
 }
 
 async function sbRpc(fn, body) {
+  try {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
-        method: 'POST',
-        headers: HEADERS,
-        body: JSON.stringify(body)
+      method: 'POST', headers: HEADERS,
+      body: JSON.stringify(body)
     });
     return r.ok;
+  } catch { return false; }
 }
 
 // ════════════════════════════════════════════
-//  CARICA DATI UTENTE
+//  INIT
 // ════════════════════════════════════════════
 async function loadUser() {
-    if (!state.userId) {
-        showToast('User ID not found — open from Telegram bot');
-        return;
-    }
+  if (!state.userId) {
+    showToast('Open from Telegram bot!');
+    return;
+  }
 
-    const data = await sbGet(`users?id=eq.${state.userId}&select=coins,tap_power`);
+  const data = await sbGet(`users?id=eq.${state.userId}&select=coins,tap_power`);
 
-    if (!data || data.length === 0) {
-        showToast('User not found — send /start to the bot first');
-        return;
-    }
+  if (!data || data.length === 0) {
+    showToast('Send /start to the bot first');
+    return;
+  }
 
-    state.coins    = data[0].coins    || 0;
-    state.tapPower = data[0].tap_power || 1;
+  state.coins    = data[0].coins    || 0;
+  state.tapPower = data[0].tap_power || 1;
 
-    updateUI();
-    loadRank();
+  updateUI();
+  loadRank();
+  startEnergyRegen();
+
+  // Mostra app
+  setTimeout(() => {
+    document.getElementById('loading').classList.add('hide');
+    document.getElementById('app').classList.add('show');
+  }, 1400);
 }
 
 async function loadRank() {
-    const data = await sbGet('users?select=id&order=coins.desc');
-    if (!data) return;
-    const rank = data.findIndex(u => String(u.id) === String(state.userId)) + 1;
-    document.getElementById('rankDisplay').textContent = rank > 0 ? `#${rank}` : '#?';
+  const data = await sbGet('users?select=id&order=coins.desc');
+  if (!data || !data.length) return;
+  const rank = data.findIndex(u => String(u.id) === String(state.userId)) + 1;
+  const rankStr = rank > 0 ? `#${rank}` : '#?';
+  document.getElementById('rankDisplay').textContent = rankStr;
+  document.getElementById('rankBadge').textContent = rankStr;
+}
+
+// ════════════════════════════════════════════
+//  ENERGY SYSTEM
+// ════════════════════════════════════════════
+function startEnergyRegen() {
+  energyTimer = setInterval(() => {
+    if (state.energy < MAX_ENERGY) {
+      state.energy = Math.min(MAX_ENERGY, state.energy + 1);
+      updateEnergyUI();
+    }
+  }, ENERGY_REGEN_MS);
+}
+
+function updateEnergyUI() {
+  const pct = (state.energy / MAX_ENERGY) * 100;
+  document.getElementById('energyFill').style.width = pct + '%';
+  document.getElementById('energyVal').textContent = state.energy;
+
+  // Colore in base all'energia
+  const fill = document.getElementById('energyFill');
+  if (state.energy < 20) {
+    fill.style.background = 'linear-gradient(90deg, #8B0000, #FF2020)';
+  } else if (state.energy < 50) {
+    fill.style.background = 'linear-gradient(90deg, #8B4500, #FF8C00)';
+  } else {
+    fill.style.background = 'linear-gradient(90deg, var(--gold-dark), var(--gold-bright))';
+  }
+}
+
+// ════════════════════════════════════════════
+//  COMBO SYSTEM
+// ════════════════════════════════════════════
+function updateCombo() {
+  const now = Date.now();
+  const delta = now - state.lastTapTime;
+
+  if (delta < state.COMBO_WINDOW) {
+    state.combo = Math.min(state.combo + 1, state.MAX_COMBO);
+  } else {
+    state.combo = 1;
+  }
+  state.lastTapTime = now;
+
+  // Mostra badge combo da x3 in su
+  const badge = document.getElementById('comboBadge');
+  if (state.combo >= 3) {
+    badge.textContent = `⚡ COMBO x${state.combo}`;
+    badge.classList.add('show');
+    // Colore combo crescente
+    const intensity = Math.min((state.combo - 3) / 7, 1);
+    badge.style.background = `linear-gradient(135deg,
+      rgb(${139 + Math.round(116*intensity)}, ${Math.round(30*(1-intensity))}, 0),
+      rgb(255, ${Math.round(69*(1-intensity))}, 0))`;
+  } else {
+    badge.classList.remove('show');
+  }
+
+  // Reset combo timer
+  clearTimeout(state.comboTimer);
+  state.comboTimer = setTimeout(() => {
+    state.combo = 1;
+    document.getElementById('comboBadge').classList.remove('show');
+  }, state.COMBO_WINDOW + 100);
 }
 
 // ════════════════════════════════════════════
 //  TAP HANDLER
 // ════════════════════════════════════════════
 function handleTap(event) {
-    if (!state.userId) return;
+  if (!state.userId) return;
 
-    state.coins   += state.tapPower;
-    state.taps    += 1;
-    state.pending += state.tapPower;
+  // Blocca se energia esaurita
+  if (state.energy <= 0) {
+    showToast('⚡ No energy! Wait for regen...');
+    shakeTapBtn();
+    return;
+  }
 
-    updateUI();
-    animateCoin(event);
-    bumpCoins();
+  // Aggiorna combo
+  updateCombo();
 
-    // Sync al DB ogni 1.5s — batch per efficienza
-    clearTimeout(syncTimer);
-    syncTimer = setTimeout(syncToDb, 1500);
-}
+  // Calcola guadagno con combo
+  const comboBonus  = state.combo >= 3 ? state.combo : 1;
+  const earned      = state.tapPower * comboBonus;
 
-async function syncToDb() {
-    if (state.pending === 0 || state.syncing) return;
-    state.syncing = true;
-    const amount = state.pending;
-    state.pending = 0;
+  state.coins   += earned;
+  state.taps    += 1;
+  state.pending += earned;
+  state.energy  -= ENERGY_PER_TAP;
 
-    const ok = await sbRpc('add_coins', {
-        user_id: parseInt(state.userId),
-        amount:  amount
-    });
+  updateUI();
+  updateEnergyUI();
 
-    if (!ok) {
-        // Se fallisce rimetti i coins in pending per il prossimo sync
-        state.pending += amount;
-        showToast('Sync failed — will retry');
-    }
+  // Effetti visivi
+  spawnParticles(event);
+  spawnFloatCoin(event, earned);
+  if (state.combo >= 5) spawnBounceCoin(event);
+  screenFlash();
+  bumpCoins();
 
-    state.syncing = false;
+  // Sync
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncToDb, 1500);
 }
 
 // ════════════════════════════════════════════
-//  UI
+//  SYNC DB
+// ════════════════════════════════════════════
+async function syncToDb() {
+  if (state.pending === 0 || state.syncing) return;
+  state.syncing  = true;
+  const amount   = state.pending;
+  state.pending  = 0;
+
+  const ok = await sbRpc('add_coins', {
+    user_id: parseInt(state.userId),
+    amount:  amount
+  });
+
+  if (!ok) {
+    state.pending += amount;
+  }
+  state.syncing = false;
+}
+
+// ════════════════════════════════════════════
+//  UI UPDATE
 // ════════════════════════════════════════════
 function updateUI() {
-    document.getElementById('coinsDisplay').textContent =
-        state.coins.toLocaleString('en-US');
-    document.getElementById('powerDisplay').textContent =
-        `x${state.tapPower}`;
-    document.getElementById('tapsDisplay').textContent =
-        state.taps.toLocaleString('en-US');
+  document.getElementById('coinsDisplay').textContent =
+    state.coins.toLocaleString('en-US');
+  document.getElementById('powerDisplay').textContent =
+    `x${state.tapPower}`;
+  document.getElementById('powerLabel').textContent =
+    `POWER x${state.tapPower}`;
+  document.getElementById('tapsDisplay').textContent =
+    state.taps.toLocaleString('en-US');
 }
 
 function bumpCoins() {
-    const el = document.getElementById('coinsDisplay');
-    el.classList.remove('bump');
-    void el.offsetWidth; // reflow
-    el.classList.add('bump');
-    setTimeout(() => el.classList.remove('bump'), 100);
+  const el = document.getElementById('coinsDisplay');
+  el.classList.remove('bump');
+  void el.offsetWidth;
+  el.classList.add('bump');
+  setTimeout(() => el.classList.remove('bump'), 80);
 }
 
-function animateCoin(event) {
-    const el = document.createElement('div');
-    el.className = 'float-coin';
-    el.textContent = `+${state.tapPower}`;
-
-    const x = (event.clientX ?? window.innerWidth  / 2);
-    const y = (event.clientY ?? window.innerHeight / 2);
-    el.style.left = `${x - 15 + (Math.random() - 0.5) * 30}px`;
-    el.style.top  = `${y - 10}px`;
-
-    document.body.appendChild(el);
-    setTimeout(() => el.remove(), 800);
-}
-
-function showToast(msg) {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.classList.add('show');
-    setTimeout(() => t.classList.remove('show'), 3000);
+function shakeTapBtn() {
+  const btn = document.getElementById('tapBtn');
+  btn.style.animation = 'none';
+  btn.style.transform = 'translateX(-6px)';
+  setTimeout(() => { btn.style.transform = 'translateX(6px)'; }, 80);
+  setTimeout(() => { btn.style.transform = 'translateX(0)'; }, 160);
 }
 
 // ════════════════════════════════════════════
-//  SYNC FINALE quando l'utente chiude
+//  VISUAL FX
+// ════════════════════════════════════════════
+const PARTICLE_COLORS = [
+  '#FFD700', '#D4AF37', '#FF2020', '#FF8C00',
+  '#FFF0A0', '#FF4500'
+];
+
+function spawnParticles(event) {
+  const count = 6 + state.combo * 2;
+  const x = event.clientX ?? window.innerWidth  / 2;
+  const y = event.clientY ?? window.innerHeight / 2;
+
+  for (let i = 0; i < Math.min(count, 16); i++) {
+    const el    = document.createElement('div');
+    el.className = 'particle';
+    const angle  = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.5;
+    const dist   = 30 + Math.random() * 60;
+    const size   = 3 + Math.random() * 5;
+    const dur    = 0.5 + Math.random() * 0.5;
+    const color  = PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)];
+
+    el.style.cssText = `
+      left: ${x}px; top: ${y}px;
+      width: ${size}px; height: ${size}px;
+      background: ${color};
+      box-shadow: 0 0 ${size * 2}px ${color};
+      --tx: ${Math.cos(angle) * dist}px;
+      --ty: ${Math.sin(angle) * dist - 30}px;
+      --dur: ${dur}s;
+    `;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), dur * 1000);
+  }
+}
+
+function spawnFloatCoin(event, earned) {
+  const el = document.createElement('div');
+  el.className = 'float-coin';
+  el.textContent = `+${earned}`;
+
+  const x = event.clientX ?? window.innerWidth / 2;
+  const y = event.clientY ?? window.innerHeight / 2;
+  el.style.left = `${x - 15 + (Math.random() - 0.5) * 40}px`;
+  el.style.top  = `${y - 20}px`;
+
+  // Oro per combo alto
+  if (state.combo >= 5) {
+    el.style.color = '#FF6347';
+    el.style.fontSize = '1.8rem';
+  }
+
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 900);
+}
+
+function spawnBounceCoin(event) {
+  const el = document.createElement('div');
+  el.className = 'bounce-coin';
+  el.textContent = '🪙';
+
+  const x = event.clientX ?? window.innerWidth / 2;
+  const y = event.clientY ?? window.innerHeight / 2;
+  el.style.left = `${x + (Math.random() - 0.5) * 60}px`;
+  el.style.top  = `${y}px`;
+
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 700);
+}
+
+function screenFlash() {
+  const el = document.createElement('div');
+  el.className = 'screen-flash';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 200);
+}
+
+// ════════════════════════════════════════════
+//  TOAST
+// ════════════════════════════════════════════
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ════════════════════════════════════════════
+//  CLEANUP
 // ════════════════════════════════════════════
 window.addEventListener('beforeunload', syncToDb);
-tg.onEvent('viewportChanged', () => {
-    if (!tg.isExpanded) syncToDb();
-});
+tg.onEvent('viewportChanged', () => { if (!tg.isExpanded) syncToDb(); });
 
 // ════════════════════════════════════════════
 //  START
