@@ -455,9 +455,9 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;
 
 <script>
 // ════ CONFIG ════
-const SUPABASE_URL  = 'https://vwgxfxthammtghqjhhzs.supabase.co';  // ← TUA URL
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ3Z3hmeHRoYW1tdGdocWpoaHpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3MDQ2OTEsImV4cCI6MjA5MTI4MDY5MX0.j3crSl25rS_yJa-68uBOEb0evzMHPs61wJl1YQsYJGs';                   // ← TUA ANON KEY
-const TREASURY_ADDR = '0x775232aCa7c3bfC4455417f102Ab17420F553982';             // ← TUO WALLET
+const SUPABASE_URL  = 'https://vwgxfxthammtghqjhhzs.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ3Z3hmeHRoYW1tdGdocWpoaHpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3MDQ2OTEsImV4cCI6MjA5MTI4MDY5MX0.j3crSl25rS_yJa-68uBOEb0evzMHPs61wJl1YQsYJGs';
+const TREASURY_ADDR = '0x775232aCa7c3bfC4455417f102Ab17420F553982';
 
 const HEADERS = {
   'apikey':SUPABASE_ANON,
@@ -608,10 +608,17 @@ async function loadUser() {
 
         if (data && data.length > 0) {
             const u = data[0];
-            state.energy = calcEnergy(u.energy || 1000, u.last_energy_update);
+            const newEnergy = calcEnergy(u.energy || 100, u.last_energy_update);
+            state.energy = newEnergy;
             state.coins = u.coins || 0;
             state.tapPower = u.tap_power || 1;
             state.streak = u.streak || 0;
+
+            // 💾 Salva subito il nuovo valore di energia nel DB
+            await sbPatch('users', `id=eq.${state.userId}`, {
+                energy: state.energy,
+                last_energy_update: new Date().toISOString()
+            });
         }
     } catch (e) {
         console.error("Errore DB:", e);
@@ -619,8 +626,10 @@ async function loadUser() {
         // 3. QUESTO CODICE ESEGUE SEMPRE E SBLOCCA LA PAGINA
         updateUI();
         updateEnergyUI();
+        loadRank();        // Ora funziona con la policy RLS
+        loadPrizePool();
+        startRegenTimer();
         
-        // Nasconde il loading e mostra l'app
         setTimeout(() => {
             const loader = document.getElementById('loading');
             if (loader) loader.style.display = 'none'; 
@@ -851,6 +860,7 @@ function showToast(msg,type=''){
 
 // ════ CLEANUP ════
 window.addEventListener('pagehide',syncToDb);
+window.addEventListener('beforeunload',syncToDb);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)syncToDb();});
 
 // ════ START ════
