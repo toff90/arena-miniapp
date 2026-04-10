@@ -681,6 +681,16 @@ def telegram_webhook():
         await telegram_app.process_update(update)
 
     try:
+        import time
+        import concurrent.futures
+
+        while not getattr(telegram_app, '_initialized', False):
+            time.sleep(0.1)
+
+        if hasattr(telegram_app, 'bg_loop') and telegram_app.bg_loop.is_running():
+            asyncio.run_coroutine_threadsafe(process(), telegram_app.bg_loop).result()
+            return 'OK', 200
+
         asyncio.run(process())
         return 'OK', 200
     except Exception as e:
@@ -718,6 +728,9 @@ def init_bot():
     def run_async():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        
+        telegram_app.bg_loop = loop
+        
         loop.run_until_complete(app.initialize())
         loop.run_until_complete(app.start())
         if WEBHOOK_URL:
