@@ -588,29 +588,45 @@ function startRegenTimer(){
 }
 
 // ════ LOAD USER ════
-async function loadUser(){
-  if(!state.userId){showToast('Open from Telegram bot!','error');return;}
-  const data=await sbGet('users',{
-    id:`eq.${state.userId}`,
-    select:'coins,tap_power,energy,last_energy_update,streak,last_claim'
-  });
-  if(!data||!data.length){showToast('Send /start to the bot first','error');return;}
-  const u=data[0];
-  state.energy   =calcEnergy(u.energy,u.last_energy_update);
-  state.coins    =u.coins||0;
-  state.tapPower =u.tap_power||1;
-  state.streak   =u.streak||0;
-  state.lastClaim=u.last_claim;
-  // Salva energia calcolata
-  await sbPatch('users',`id=eq.${state.userId}`,{
-    energy:state.energy,last_energy_update:new Date().toISOString()
-  });
-  updateUI();updateEnergyUI();updateUpgradeBtns();
-  loadRank();loadPrizePool();startRegenTimer();
-  setTimeout(()=>{
-    document.getElementById('loading').classList.add('hide');
-    document.getElementById('app').classList.add('show');
-  },1500);
+async function loadUser() {
+    // 1. Recupero ID dall'URL (generato dal bot in bot.py) o da Telegram
+    const params = new URLSearchParams(window.location.search);
+    state.userId = params.get('uid') || (window.Telegram?.WebApp?.initDataUnsafe?.user?.id);
+
+    // Se sei in locale/debug su Termux, usa un ID di test
+    if (!state.userId) {
+        console.log("Debug: ID non trovato, uso test ID");
+        state.userId = "1481950118"; 
+    }
+
+    try {
+        // 2. Chiamata a Supabase
+        const data = await sbGet('users', {
+            id: `eq.${state.userId}`,
+            select: 'coins,tap_power,energy,last_energy_update,streak'
+        });
+
+        if (data && data.length > 0) {
+            const u = data[0];
+            state.energy = calcEnergy(u.energy || 1000, u.last_energy_update);
+            state.coins = u.coins || 0;
+            state.tapPower = u.tap_power || 1;
+            state.streak = u.streak || 0;
+        }
+    } catch (e) {
+        console.error("Errore DB:", e);
+    } finally {
+        // 3. QUESTO CODICE ESEGUE SEMPRE E SBLOCCA LA PAGINA
+        updateUI();
+        updateEnergyUI();
+        
+        // Nasconde il loading e mostra l'app
+        setTimeout(() => {
+            const loader = document.getElementById('loading');
+            if (loader) loader.style.display = 'none'; 
+            document.getElementById('app').classList.add('show');
+        }, 800);
+    }
 }
 async function loadRank(){
   const d=await sbGet('users',{select:'id',order:'coins.desc'});
