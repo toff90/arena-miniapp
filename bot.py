@@ -1,16 +1,14 @@
 """
-🔥 Arena Bot v3.1 — Webhook Edition
-- Webhook invece di polling → niente più conflitti su Render
-- Endpoint /telegram per ricevere gli update
-- Flask health + payment API come prima
-- Tutte le funzionalità invariate
+🔥 Arena Bot v3.2 — Webhook Only (no polling)
+- Flask con view sincrona che esegue asyncio.run()
+- Webhook impostato all'avvio
+- Nessun polling, nessun conflitto
 """
 
 import os
 import logging
 import datetime
 import threading
-import json
 import asyncio
 import httpx
 from flask import Flask, request, jsonify
@@ -30,8 +28,8 @@ SUPABASE_KEY   = os.getenv("SUPABASE_SERVICE_KEY")
 MINIAPP_URL    = os.getenv("MINIAPP_URL")
 TREASURY_ADDR  = os.getenv("TREASURY_ADDR", "")
 ADMIN_IDS      = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
-WEBHOOK_URL    = os.getenv("WEBHOOK_URL")          # es. https://arena-tap.onrender.com
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")   # stringa casuale per sicurezza
+WEBHOOK_URL    = os.getenv("WEBHOOK_URL")          # https://arena-tap.onrender.com
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 AVAX_RPC       = "https://api.avax.network/ext/bc/C/rpc"
 
 HEADERS = {
@@ -237,21 +235,6 @@ def main_keyboard(miniapp_url, user_id):
          InlineKeyboardButton("🏆 Prize",     callback_data="prize")],
     ])
 
-def home_text(data, ref_link, sprint=None):
-    streak = data.get("streak", 0)
-    s = "🔥" * min(streak, 7) or "—"
-    sp = f"\n⚡ <b>SPRINT: {sprint['name']}</b>\n" if sprint else ""
-    return (
-        f"👋 <b>Welcome back, Gladiator!</b>{sp}\n"
-        f"💰 Total Coins: <b>{data.get('coins',0):,}</b>\n"
-        f"🏁 Season Coins: <b>{data.get('season_coins',0):,}</b>\n"
-        f"⚡ Tap Power: <b>x{data.get('tap_power',1)}</b>\n"
-        f"👥 Squad: <b>{data.get('referral_count',0)}</b> members\n"
-        f"📅 Streak: {s} <b>{streak}/7</b>\n\n"
-        f"🔗 Your invite link:\n<code>https://t.me/BOTUSERNAME?start=ref_{data.get('id','')}</code>\n\n"
-        f"<i>Invite friends → +1,000 coins + 5% passive!</i>"
-    )
-
 async def get_sprint():
     sp = await db_get("sprints", {"is_active": "eq.true", "order": "started_at.desc", "limit": "1"})
     if not sp: return None
@@ -276,7 +259,7 @@ def remaining(ends_str):
     except: return "?"
 
 # ═══════════════════════════════════════════════════════════
-#  HANDLER TELEGRAM (invariati)
+#  HANDLER TELEGRAM (tutti async)
 # ═══════════════════════════════════════════════════════════
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -500,7 +483,6 @@ async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_user = await db_get("users", {"id": f"eq.{user.id}"})
     data = db_user[0] if db_user else {}
     bot_name = (await context.bot.get_me()).username
-    ref_link = f"https://t.me/{bot_name}?start=ref_{user.id}"
     sprint = await get_sprint()
     streak = data.get("streak", 0)
     s = "🔥"*min(streak,7) or "—"
@@ -688,15 +670,14 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Unhandled: {context.error}", exc_info=context.error)
 
 # ═══════════════════════════════════════════════════════════
-#  WEBHOOK ENDPOINT
+#  WEBHOOK ENDPOINT (sincrono che esegue async)
 # ═══════════════════════════════════════════════════════════
 
-# La variabile globale per l'Application Telegram
 telegram_app = None
 
 @flask_app.route('/telegram', methods=['POST'])
-async def telegram_webhook():
-    """Riceve gli update da Telegram."""
+def telegram_webhook():
+    """View sincrona che esegue l'handler asincrono."""
     if not WEBHOOK_SECRET:
         logger.warning("WEBHOOK_SECRET not set. Accepting any request.")
     elif request.headers.get('X-Telegram-Bot-Api-Secret-Token') != WEBHOOK_SECRET:
@@ -705,16 +686,19 @@ async def telegram_webhook():
     if telegram_app is None:
         return 'Bot not ready', 503
 
-    try:
-        update = Update.de_json(request.get_json(force=True), telegram_app.bot)
+    update_data = request.get_json(force=True)
+    async def process():
+        update = Update.de_json(update_data, telegram_app.bot)
         await telegram_app.process_update(update)
+
+    try:
+        asyncio.run(process())
         return 'OK', 200
     except Exception as e:
         logger.error(f"Webhook error: {e}", exc_info=True)
         return 'Error', 500
 
 async def set_webhook(app):
-    """Imposta il webhook su Telegram."""
     webhook_url = f"{WEBHOOK_URL}/telegram"
     await app.bot.set_webhook(url=webhook_url, secret_token=WEBHOOK_SECRET, drop_pending_updates=True)
     logger.info(f"Webhook set to {webhook_url}")
@@ -736,7 +720,7 @@ def main():
 
     # Crea Application Telegram
     app = Application.builder().token(BOT_TOKEN).build()
-    telegram_app = app  # per l'endpoint webhook
+    telegram_app = app
 
     app.add_handler(CommandHandler("start",     start))
     app.add_handler(CommandHandler("pay",       pay_command))
@@ -754,7 +738,6 @@ def main():
     app.add_handler(CallbackQueryHandler(noop_callback,       pattern="^noop$"))
     app.add_error_handler(error_handler)
 
-    # Inizializza e avvia il bot (sostituisce run_polling)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
@@ -762,12 +745,11 @@ def main():
         loop.run_until_complete(app.start())
         if WEBHOOK_URL:
             loop.run_until_complete(set_webhook(app))
-            print(f"🔥 Arena Bot v3.1 — Webhook active at {WEBHOOK_URL}/telegram")
+            print(f"🔥 Arena Bot v3.2 — Webhook active at {WEBHOOK_URL}/telegram")
         else:
-            print("⚠️ WEBHOOK_URL not set, falling back to polling (not recommended).")
-            loop.run_until_complete(app.updater.start_polling(drop_pending_updates=True))
-        # Mantiene il processo vivo
-        loop.run_forever()
+            raise RuntimeError("WEBHOOK_URL must be set!")
+        # Mantiene il thread principale vivo per Flask (che gira nel thread separato)
+        threading.Event().wait()
     except KeyboardInterrupt:
         pass
     finally:
