@@ -589,32 +589,31 @@ function startRegenTimer(){
 
 // ════ LOAD USER ════
 async function loadUser() {
-    // 1. Recupero ID dall'URL (generato dal bot in bot.py) o da Telegram
     const params = new URLSearchParams(window.location.search);
     state.userId = params.get('uid') || (window.Telegram?.WebApp?.initDataUnsafe?.user?.id);
 
-    // Se sei in locale/debug su Termux, usa un ID di test
     if (!state.userId) {
         console.log("Debug: ID non trovato, uso test ID");
         state.userId = "1481950118"; 
     }
 
     try {
-        // 2. Chiamata a Supabase
+        // Aggiunto 'last_claim' alla select
         const data = await sbGet('users', {
             id: `eq.${state.userId}`,
-            select: 'coins,tap_power,energy,last_energy_update,streak'
+            select: 'coins,tap_power,energy,last_energy_update,streak,last_claim'
         });
 
         if (data && data.length > 0) {
             const u = data[0];
-            const newEnergy = calcEnergy(u.energy || 100, u.last_energy_update);
+            const newEnergy = calcEnergy(u.energy ?? MAX_ENERGY, u.last_energy_update);
             state.energy = newEnergy;
             state.coins = u.coins || 0;
             state.tapPower = u.tap_power || 1;
             state.streak = u.streak || 0;
+            state.lastClaim = u.last_claim || null;
 
-            // 💾 Salva subito il nuovo valore di energia nel DB
+            // Salva subito l'energia aggiornata
             await sbPatch('users', `id=eq.${state.userId}`, {
                 energy: state.energy,
                 last_energy_update: new Date().toISOString()
@@ -623,10 +622,9 @@ async function loadUser() {
     } catch (e) {
         console.error("Errore DB:", e);
     } finally {
-        // 3. QUESTO CODICE ESEGUE SEMPRE E SBLOCCA LA PAGINA
         updateUI();
         updateEnergyUI();
-        loadRank();        // Ora funziona con la policy RLS
+        loadRank();
         loadPrizePool();
         startRegenTimer();
         
@@ -637,6 +635,7 @@ async function loadUser() {
         }, 800);
     }
 }
+
 async function loadRank(){
   const d=await sbGet('users',{select:'id',order:'coins.desc'});
   if(!d||!d.length)return;
@@ -698,7 +697,7 @@ function handleTap(e){
   if(state.combo>=5)spawnBounce(e);
   flash();bumpCoins();
   clearTimeout(syncTimer);
-  syncTimer=setTimeout(syncToDb,1500);
+  syncTimer=setTimeout(syncToDb,800); // ridotto a 800ms per salvare prima
 }
 
 // ════ SYNC ════
@@ -706,11 +705,24 @@ async function syncToDb(){
   if(state.pending===0||state.syncing)return;
   state.syncing=true;
   const coins=state.pending;state.pending=0;
-  await Promise.all([
-    sbRpc('add_coins',{user_id:parseInt(state.userId),amount:coins}),
-    sbPatch('users',`id=eq.${state.userId}`,{energy:state.energy,last_energy_update:new Date().toISOString()})
-  ]);
+  try {
+    await Promise.all([
+      sbRpc('add_coins',{user_id:parseInt(state.userId),amount:coins}),
+      sbPatch('users',`id=eq.${state.userId}`,{energy:state.energy,last_energy_update:new Date().toISOString()})
+    ]);
+  } catch(e) {}
   state.syncing=false;
+}
+
+// Salva energia anche in chiusura
+function syncEnergyNow() {
+  if (!state.userId) return;
+  fetch(`${SUPABASE_URL}/rest/v1/users?id=eq.${state.userId}`, {
+    method: 'PATCH',
+    headers: HEADERS,
+    body: JSON.stringify({ energy: state.energy, last_energy_update: new Date().toISOString() }),
+    keepalive: true
+  }).catch(e => console.warn('Sync energy failed', e));
 }
 
 // ════ DAILY ════
@@ -859,9 +871,12 @@ function showToast(msg,type=''){
 }
 
 // ════ CLEANUP ════
-window.addEventListener('pagehide',syncToDb);
-window.addEventListener('beforeunload',syncToDb);
-document.addEventListener('visibilitychange',()=>{if(document.hidden)syncToDb();});
+window.addEventListener('pagehide', syncToDb);
+window.addEventListener('beforeunload', () => {
+  syncToDb();
+  syncEnergyNow();
+});
+document.addEventListener('visibilitychange', () => { if(document.hidden) syncToDb(); });
 
 // ════ START ════
 loadUser();
