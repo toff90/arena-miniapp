@@ -1,16 +1,18 @@
 """
-🔥 Arena Bot v3.3 — Production Ready
-- Webhook + Flask gestito da Gunicorn
-- Nessun polling, nessun conflitto
-- Supporto per variabili d'ambiente su Render
+🔥 Arena Bot v3.4 — Gunicorn Ready
+- Inizializzazione bot a livello di modulo
+- Flask app esposta direttamente
+- Webhook impostato in un thread separato
 """
 
 import os
 import logging
 import datetime
+import threading
 import asyncio
 import httpx
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
@@ -27,7 +29,7 @@ SUPABASE_KEY   = os.getenv("SUPABASE_SERVICE_KEY")
 MINIAPP_URL    = os.getenv("MINIAPP_URL")
 TREASURY_ADDR  = os.getenv("TREASURY_ADDR", "")
 ADMIN_IDS      = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
-WEBHOOK_URL    = os.getenv("WEBHOOK_URL")          # https://arena-tap.onrender.com
+WEBHOOK_URL    = os.getenv("WEBHOOK_URL")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 AVAX_RPC       = "https://api.avax.network/ext/bc/C/rpc"
 
@@ -52,6 +54,7 @@ PRIZE_DIST   = [0.40, 0.20, 0.10, 0.05, 0.05, 0.05, 0.05, 0.03, 0.03, 0.04]
 
 # ─── Flask App ─────────────────────────────────────────────
 flask_app = Flask(__name__)
+CORS(flask_app, origins=["https://arena.social", "https://toff90.github.io"], supports_credentials=True)
 
 @flask_app.route('/health')
 def health():
@@ -156,10 +159,7 @@ def _sync_prize_pool(req_lib, avax_amount: float):
                   "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
         )
 
-# ═══════════════════════════════════════════════════════════
-#  SUPABASE HELPERS (async)
-# ═══════════════════════════════════════════════════════════
-
+# ─── Supabase helpers (async) ─────────────────────────────
 async def db_get(table: str, filters: dict = {}) -> list:
     try:
         async with httpx.AsyncClient(timeout=10) as c:
@@ -197,10 +197,7 @@ async def db_leaderboard(order_by: str, limit: int = 10) -> list:
     except Exception as e:
         logger.error(f"leaderboard: {e}"); return []
 
-# ═══════════════════════════════════════════════════════════
-#  USER HELPERS
-# ═══════════════════════════════════════════════════════════
-
+# ─── User helpers ────────────────────────────────────────
 async def ensure_user(user, referred_by=None):
     existing = await db_get("users", {"id": f"eq.{user.id}"})
     if not existing:
@@ -257,10 +254,7 @@ def remaining(ends_str):
         return f"{h}h {m}m"
     except: return "?"
 
-# ═══════════════════════════════════════════════════════════
-#  HANDLER TELEGRAM
-# ═══════════════════════════════════════════════════════════
-
+# ─── Telegram Handlers (invariati, li includo per completezza) ───
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     ref = None
@@ -668,16 +662,13 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
         logger.warning(f"Network error (ignored): {context.error}"); return
     logger.error(f"Unhandled: {context.error}", exc_info=context.error)
 
-# ═══════════════════════════════════════════════════════════
-#  WEBHOOK ENDPOINT
-# ═══════════════════════════════════════════════════════════
-
+# ─── Webhook endpoint ────────────────────────────────────
 telegram_app = None
 
 @flask_app.route('/telegram', methods=['POST'])
 def telegram_webhook():
     if not WEBHOOK_SECRET:
-        logger.warning("WEBHOOK_SECRET not set. Accepting any request.")
+        logger.warning("WEBHOOK_SECRET not set.")
     elif request.headers.get('X-Telegram-Bot-Api-Secret-Token') != WEBHOOK_SECRET:
         return 'Unauthorized', 401
 
@@ -701,17 +692,9 @@ async def set_webhook(app):
     await app.bot.set_webhook(url=webhook_url, secret_token=WEBHOOK_SECRET, drop_pending_updates=True)
     logger.info(f"Webhook set to {webhook_url}")
 
-def create_app():
-    """Factory per Gunicorn."""
-    return flask_app
-
-# ═══════════════════════════════════════════════════════════
-#  MAIN (solo per sviluppo locale)
-# ═══════════════════════════════════════════════════════════
-
-def main():
+# ─── Inizializzazione bot (a livello di modulo) ─────────
+def init_bot():
     global telegram_app
-
     app = Application.builder().token(BOT_TOKEN).build()
     telegram_app = app
 
@@ -731,23 +714,20 @@ def main():
     app.add_handler(CallbackQueryHandler(noop_callback,       pattern="^noop$"))
     app.add_error_handler(error_handler)
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
+    # Avvia il bot e imposta il webhook in un thread separato
+    def run_async():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         loop.run_until_complete(app.initialize())
         loop.run_until_complete(app.start())
         if WEBHOOK_URL:
             loop.run_until_complete(set_webhook(app))
-            print(f"🔥 Arena Bot v3.3 — Webhook active at {WEBHOOK_URL}/telegram")
-        else:
-            raise RuntimeError("WEBHOOK_URL must be set!")
-        import signal
-        signal.pause()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        loop.run_until_complete(app.stop())
-        loop.close()
+        loop.run_forever()
 
-if __name__ == "__main__":
-    main()
+    threading.Thread(target=run_async, daemon=True).start()
+
+# Avvia l'inizializzazione quando il modulo viene importato
+init_bot()
+
+# ─── Esponi l'app Flask per Gunicorn ────────────────────
+# (nessuna factory necessaria)
