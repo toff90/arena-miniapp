@@ -21,11 +21,12 @@ services:
         sync: false
 
   # 2. Frontend (Static Site)
-  - type: static
+  - type: web
     name: arena-frontend
+    runtime: static
     branch: main
     buildCommand: ""   # Lascia vuoto se non hai build steps
-    publishDir: .      # Usa "." se index.html è nella root del repo
+    staticPublishPath: .      # Pubblica la root del repository
     envVars:
       - key: SUPABASE_URL
         sync: false
