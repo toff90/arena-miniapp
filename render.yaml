@@ -21,7 +21,7 @@ services:
         sync: false
 
   # 2. Frontend (Static Site)
-  - type: static
+  - type: static-site
     name: arena-frontend
     branch: main
     buildCommand: ""   # se non hai build steps
