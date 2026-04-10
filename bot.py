@@ -1,14 +1,13 @@
 """
-🔥 Arena Bot v3.2 — Webhook Only (no polling)
-- Flask con view sincrona che esegue asyncio.run()
-- Webhook impostato all'avvio
+🔥 Arena Bot v3.3 — Production Ready
+- Webhook + Flask gestito da Gunicorn
 - Nessun polling, nessun conflitto
+- Supporto per variabili d'ambiente su Render
 """
 
 import os
 import logging
 import datetime
-import threading
 import asyncio
 import httpx
 from flask import Flask, request, jsonify
@@ -259,7 +258,7 @@ def remaining(ends_str):
     except: return "?"
 
 # ═══════════════════════════════════════════════════════════
-#  HANDLER TELEGRAM (tutti async)
+#  HANDLER TELEGRAM
 # ═══════════════════════════════════════════════════════════
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -670,14 +669,13 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Unhandled: {context.error}", exc_info=context.error)
 
 # ═══════════════════════════════════════════════════════════
-#  WEBHOOK ENDPOINT (sincrono che esegue async)
+#  WEBHOOK ENDPOINT
 # ═══════════════════════════════════════════════════════════
 
 telegram_app = None
 
 @flask_app.route('/telegram', methods=['POST'])
 def telegram_webhook():
-    """View sincrona che esegue l'handler asincrono."""
     if not WEBHOOK_SECRET:
         logger.warning("WEBHOOK_SECRET not set. Accepting any request.")
     elif request.headers.get('X-Telegram-Bot-Api-Secret-Token') != WEBHOOK_SECRET:
@@ -703,22 +701,17 @@ async def set_webhook(app):
     await app.bot.set_webhook(url=webhook_url, secret_token=WEBHOOK_SECRET, drop_pending_updates=True)
     logger.info(f"Webhook set to {webhook_url}")
 
-# ═══════════════════════════════════════════════════════════
-#  MAIN
-# ═══════════════════════════════════════════════════════════
+def create_app():
+    """Factory per Gunicorn."""
+    return flask_app
 
-def run_flask():
-    port = int(os.environ.get('PORT', 10000))
-    flask_app.run(host='0.0.0.0', port=port, threaded=True)
+# ═══════════════════════════════════════════════════════════
+#  MAIN (solo per sviluppo locale)
+# ═══════════════════════════════════════════════════════════
 
 def main():
     global telegram_app
 
-    # Avvia Flask in thread separato
-    t = threading.Thread(target=run_flask, daemon=True)
-    t.start()
-
-    # Crea Application Telegram
     app = Application.builder().token(BOT_TOKEN).build()
     telegram_app = app
 
@@ -745,11 +738,11 @@ def main():
         loop.run_until_complete(app.start())
         if WEBHOOK_URL:
             loop.run_until_complete(set_webhook(app))
-            print(f"🔥 Arena Bot v3.2 — Webhook active at {WEBHOOK_URL}/telegram")
+            print(f"🔥 Arena Bot v3.3 — Webhook active at {WEBHOOK_URL}/telegram")
         else:
             raise RuntimeError("WEBHOOK_URL must be set!")
-        # Mantiene il thread principale vivo per Flask (che gira nel thread separato)
-        threading.Event().wait()
+        import signal
+        signal.pause()
     except KeyboardInterrupt:
         pass
     finally:
