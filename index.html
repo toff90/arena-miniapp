@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Arena Coins</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--gold:#D4AF37;--gold-bright:#FFD700;--gold-dark:#8B6914;--crimson:#8B0000;--crimson-hot:#FF2020;--bg:#080608;--surface:rgba(212,175,55,0.06);--border:rgba(212,175,55,0.18);--text:#E8D5A3;--text-dim:#6B5A3A;--safe-bottom:env(safe-area-inset-bottom,0px);}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;overflow:hidden;overscroll-behavior:none;touch-action:none;}
+body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;}
+.bg-grid{position:fixed;inset:0;background-image:linear-gradient(rgba(212,175,55,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(212,175,55,0.03) 1px,transparent 1px);background-size:36px 36px;pointer-events:none;z-index:0;}
+.bg-glow{position:fixed;inset:0;background:radial-gradient(ellipse 70% 40% at 50% 0%,rgba(139,0,0,0.2) 0%,transparent 70%),radial-gradient(ellipse 50% 30% at 50% 100%,rgba(212,175,55,0.08) 0%,transparent 70%);pointer-events:none;z-index:0;}
+/* LOADING */
+#loading{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999;transition:opacity 0.5s ease 0.2s;}
+#loading.hide{opacity:0;pointer-events:none;}
+.loading-logo{font-family:'Cinzel Decorative',serif;font-size:1.8rem;color:var(--gold);letter-spacing:4px;text-shadow:0 0 30px rgba(212,175,55,0.5);animation:loadPulse 1.2s ease-in-out infinite;}
+.loading-sub{font-size:0.65rem;letter-spacing:6px;color:var(--text-dim);margin-top:0.4rem;text-transform:uppercase;}
+.loading-bar-wrap{width:160px;height:2px;background:rgba(212,175,55,0.12);margin-top:2.5rem;border-radius:2px;overflow:hidden;}
+.loading-bar{height:100%;background:linear-gradient(90deg,var(--gold-dark),var(--gold-bright));animation:loadBar 1.5s ease forwards;}
+@keyframes loadBar{from{width:0}to{width:100%}}
+@keyframes loadPulse{0%,100%{opacity:1;text-shadow:0 0 30px rgba(212,175,55,0.5);}50%{opacity:0.5;text-shadow:none;}}
+/* APP */
+#app{position:relative;z-index:1;height:100vh;display:flex;flex-direction:column;align-items:center;opacity:0;transition:opacity 0.4s ease;overflow:hidden;padding-bottom:calc(70px + var(--safe-bottom));}
+#app.show{opacity:1;}
+/* TOP BAR */
+.top-bar{width:100%;display:flex;justify-content:space-between;align-items:center;padding:0.8rem 1rem 0.4rem;flex-shrink:0;}
+.arena-logo{font-family:'Cinzel Decorative',serif;font-size:0.85rem;color:var(--gold);letter-spacing:3px;text-shadow:0 0 20px rgba(212,175,55,0.4);}
+.top-right{display:flex;gap:0.5rem;align-items:center;}
+.badge{background:var(--surface);border:1px solid var(--border);padding:0.25rem 0.7rem;border-radius:20px;font-size:0.7rem;color:var(--gold);letter-spacing:1px;font-weight:700;cursor:pointer;touch-action:manipulation;}
+/* COINS */
+.coins-wrap{text-align:center;flex-shrink:0;margin-top:0.2rem;}
+.coins-amount{font-family:'Cinzel Decorative',serif;font-size:clamp(2rem,8vw,3rem);font-weight:900;color:var(--gold-bright);text-shadow:0 0 30px rgba(255,215,0,0.4);display:block;line-height:1;transition:transform 0.06s;}
+.coins-amount.bump{transform:scale(1.1);text-shadow:0 0 50px rgba(255,215,0,0.8);}
+.coins-label{font-size:0.6rem;letter-spacing:4px;color:var(--text-dim);text-transform:uppercase;margin-top:0.1rem;}
+/* COMBO */
+.combo-wrap{height:28px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.combo-badge{background:linear-gradient(135deg,var(--crimson),#FF4500);border:1px solid rgba(255,32,32,0.4);padding:0.2rem 0.9rem;border-radius:20px;font-size:0.75rem;font-weight:700;letter-spacing:2px;color:#fff;text-transform:uppercase;opacity:0;transform:scale(0.8);transition:opacity 0.15s,transform 0.15s;box-shadow:0 0 20px rgba(255,32,32,0.4);}
+.combo-badge.show{opacity:1;transform:scale(1);}
+/* ENERGY */
+.energy-section{width:calc(100% - 2rem);flex-shrink:0;margin-top:0.3rem;}
+.energy-header{display:flex;justify-content:space-between;font-size:0.6rem;letter-spacing:2px;color:var(--text-dim);text-transform:uppercase;margin-bottom:0.3rem;}
+.energy-val{color:var(--gold);font-weight:700;}
+.energy-track{width:100%;height:5px;background:rgba(212,175,55,0.08);border-radius:3px;overflow:hidden;border:1px solid rgba(212,175,55,0.1);}
+.energy-fill{height:100%;background:linear-gradient(90deg,var(--gold-dark),var(--gold-bright));border-radius:3px;transition:width 0.3s ease;}
+.regen-info{flex-shrink:0;font-size:0.6rem;letter-spacing:2px;color:var(--text-dim);text-transform:uppercase;margin-top:0.15rem;min-height:14px;text-align:center;}
+.regen-info span{color:var(--gold);}
+/* RING */
+.arena-ring{position:relative;flex-shrink:0;width:min(55vw,220px);height:min(55vw,220px);display:flex;align-items:center;justify-content:center;margin-top:0.6rem;}
+.ring-outer{position:absolute;inset:0;border-radius:50%;border:1px solid transparent;background:linear-gradient(var(--bg),var(--bg)) padding-box,conic-gradient(var(--gold-bright) 0deg,transparent 90deg,var(--gold) 180deg,transparent 270deg,var(--gold-bright) 360deg) border-box;animation:rotateRing 4s linear infinite;}
+.ring-mid{position:absolute;inset:10px;border-radius:50%;border:1px solid rgba(212,175,55,0.12);animation:rotateRing 7s linear infinite reverse;}
+.ring-glow{position:absolute;inset:0;border-radius:50%;animation:glowPulse 2.5s ease-in-out infinite;}
+@keyframes rotateRing{to{transform:rotate(360deg);}}
+@keyframes glowPulse{0%,100%{box-shadow:0 0 40px rgba(139,0,0,0.25),0 0 80px rgba(139,0,0,0.08);}50%{box-shadow:0 0 60px rgba(212,175,55,0.35),0 0 100px rgba(139,0,0,0.15);}}
+.tap-btn{position:relative;z-index:2;width:min(42vw,168px);height:min(42vw,168px);border-radius:50%;border:none;cursor:pointer;background:radial-gradient(circle at 35% 30%,#3a1a00,#1a0808,#080404);box-shadow:inset 0 2px 4px rgba(212,175,55,0.15),inset 0 -2px 6px rgba(0,0,0,0.9),0 0 0 2px rgba(212,175,55,0.25),0 8px 30px rgba(0,0,0,0.7);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;transition:transform 0.07s,box-shadow 0.07s;-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
+.tap-btn:active{transform:scale(0.87);box-shadow:inset 0 3px 10px rgba(0,0,0,0.95),0 0 0 2px rgba(212,175,55,0.5),0 0 25px rgba(212,175,55,0.3);}
+.tap-btn.no-energy{animation:shake 0.3s ease;box-shadow:0 0 0 2px rgba(255,32,32,0.6),0 0 20px rgba(255,32,32,0.2);}
+@keyframes shake{0%,100%{transform:translateX(0);}20%{transform:translateX(-6px);}40%{transform:translateX(6px);}60%{transform:translateX(-4px);}80%{transform:translateX(4px);}}
+.btn-icon{font-size:clamp(2rem,10vw,3.2rem);filter:drop-shadow(0 0 8px rgba(212,175,55,0.5));pointer-events:none;line-height:1;}
+.btn-power{font-size:0.55rem;letter-spacing:2px;color:var(--gold);font-weight:700;text-transform:uppercase;opacity:0.6;pointer-events:none;}
+.tap-hint{flex-shrink:0;font-size:0.6rem;letter-spacing:4px;color:var(--text-dim);text-transform:uppercase;margin-top:0.4rem;}
+/* ACTION ROW */
+.action-row{display:flex;gap:0.6rem;flex-shrink:0;margin-top:0.5rem;width:calc(100% - 2rem);}
+.action-btn{flex:1;padding:0.5rem 0;background:var(--surface);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:'Rajdhani',sans-serif;font-size:0.7rem;font-weight:700;letter-spacing:1px;cursor:pointer;text-transform:uppercase;transition:background 0.2s;touch-action:manipulation;}
+.action-btn:active{background:rgba(212,175,55,0.12);}
+.action-btn.gold{background:linear-gradient(135deg,rgba(212,175,55,0.15),rgba(212,175,55,0.08));border-color:rgba(212,175,55,0.4);color:var(--gold);}
+/* STATS BAR */
+.stats-bar{position:fixed;bottom:0;width:100%;background:rgba(8,6,8,0.97);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border);padding:0.7rem 0 calc(0.8rem + var(--safe-bottom));display:flex;justify-content:space-around;z-index:10;}
+.stat-item{text-align:center;}
+.stat-value{font-family:'Cinzel Decorative',serif;font-size:0.85rem;color:var(--gold-bright);text-shadow:0 0 10px rgba(255,215,0,0.3);}
+.stat-label{font-size:0.5rem;letter-spacing:2px;color:var(--text-dim);text-transform:uppercase;margin-top:2px;}
+/* MODALS */
+.modal-overlay{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px);display:flex;align-items:flex-end;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.25s ease;}
+.modal-overlay.show{opacity:1;pointer-events:all;}
+.modal{width:100%;max-height:88vh;background:linear-gradient(180deg,#0f0a0f,#080608);border-top:1px solid var(--border);border-radius:20px 20px 0 0;padding:1.2rem 1rem calc(1.5rem + var(--safe-bottom));overflow-y:auto;transform:translateY(40px);transition:transform 0.25s ease;position:relative;}
+.modal-overlay.show .modal{transform:translateY(0);}
+.modal-title{font-family:'Cinzel Decorative',serif;font-size:1.1rem;color:var(--gold);text-align:center;margin-bottom:0.3rem;text-shadow:0 0 15px rgba(212,175,55,0.4);}
+.modal-sub{font-size:0.7rem;letter-spacing:2px;color:var(--text-dim);text-align:center;text-transform:uppercase;margin-bottom:1.2rem;}
+.modal-close{position:absolute;top:1rem;right:1rem;width:28px;height:28px;border-radius:50%;background:var(--surface);border:1px solid var(--border);color:var(--text-dim);cursor:pointer;font-size:0.9rem;display:flex;align-items:center;justify-content:center;touch-action:manipulation;}
+/* SHOP */
+.section-title{font-size:0.65rem;letter-spacing:3px;color:var(--text-dim);text-transform:uppercase;margin:1rem 0 0.5rem;border-bottom:1px solid var(--border);padding-bottom:0.4rem;}
+.shop-item{display:flex;align-items:center;justify-content:space-between;padding:0.8rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:12px;margin-bottom:0.6rem;}
+.shop-item.featured{border-color:rgba(212,175,55,0.5);}
+.shop-item.owned{opacity:0.5;}
+.item-left{display:flex;flex-direction:column;gap:2px;}
+.item-name{font-weight:700;font-size:0.9rem;color:var(--text);}
+.item-desc{font-size:0.65rem;color:var(--text-dim);}
+.item-price{display:flex;flex-direction:column;align-items:flex-end;gap:2px;margin-right:0.6rem;}
+.price-avax{font-family:'Cinzel Decorative',serif;font-size:0.75rem;color:var(--gold);}
+.price-arena{font-size:0.55rem;color:var(--text-dim);}
+/* WALLET BUTTON */
+.wallet-pay-btn{padding:0.45rem 0.9rem;background:linear-gradient(135deg,#E84142,#C73232);border:none;border-radius:8px;color:#fff;font-family:'Rajdhani',sans-serif;font-weight:700;font-size:0.75rem;cursor:pointer;touch-action:manipulation;letter-spacing:1px;white-space:nowrap;transition:opacity 0.2s;}
+.wallet-pay-btn:active{opacity:0.8;transform:scale(0.96);}
+.wallet-pay-btn:disabled{opacity:0.4;cursor:default;}
+.wallet-pay-btn.owned-btn{background:rgba(255,255,255,0.08);cursor:default;}
+/* PRIZE BOX */
+.prize-box{background:linear-gradient(135deg,rgba(212,175,55,0.08),rgba(139,0,0,0.08));border:1px solid rgba(212,175,55,0.3);border-radius:12px;padding:0.8rem 1rem;display:flex;justify-content:space-around;margin-bottom:1rem;}
+.prize-item{text-align:center;}
+.prize-amount{font-family:'Cinzel Decorative',serif;font-size:0.9rem;color:var(--gold);}
+.prize-label{font-size:0.55rem;color:var(--text-dim);letter-spacing:1px;text-transform:uppercase;}
+/* WALLET STATUS */
+.wallet-status{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:0.7rem 1rem;font-size:0.75rem;color:var(--text-dim);text-align:center;margin-bottom:0.8rem;}
+.wallet-status.connected{border-color:rgba(76,175,80,0.4);color:#81C784;}
+.connect-btn{width:100%;padding:0.7rem;background:linear-gradient(135deg,#E84142,#C73232);border:none;border-radius:12px;color:#fff;font-family:'Cinzel Decorative',serif;font-size:0.85rem;cursor:pointer;letter-spacing:2px;margin-bottom:0.8rem;touch-action:manipulation;}
+.connect-btn.disconnect{background:rgba(255,255,255,0.06);color:var(--text-dim);font-size:0.7rem;font-family:'Rajdhani',sans-serif;letter-spacing:1px;}
+/* DAILY STREAK */
+.streak-bar{display:flex;justify-content:center;gap:0.35rem;margin:0.8rem 0;flex-wrap:wrap;}
+.streak-day{width:36px;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;align-items:center;justify-content:center;}
+.streak-day.done{border-color:var(--gold);background:rgba(212,175,55,0.15);}
+.streak-day.active{border-color:var(--crimson-hot);background:rgba(255,32,32,0.1);}
+.day-icon{font-size:1.1rem;line-height:1;}
+.day-num{font-size:0.45rem;color:var(--text-dim);margin-top:1px;}
+.day-coins{font-size:0.4rem;color:var(--gold);font-weight:700;}
+.claim-btn{width:100%;padding:0.8rem;background:linear-gradient(135deg,var(--crimson),#FF4500);border:none;border-radius:12px;color:#fff;font-family:'Cinzel Decorative',serif;font-size:0.9rem;cursor:pointer;letter-spacing:2px;margin-top:0.8rem;box-shadow:0 0 20px rgba(255,32,32,0.3);touch-action:manipulation;}
+.claim-btn:disabled{background:rgba(255,255,255,0.05);color:var(--text-dim);box-shadow:none;cursor:default;}
+/* FX */
+.particle{position:fixed;pointer-events:none;z-index:50;border-radius:50%;animation:particleFly var(--dur,0.8s) ease-out forwards;}
+@keyframes particleFly{0%{opacity:1;transform:translate(0,0) scale(1);}100%{opacity:0;transform:translate(var(--tx,0),var(--ty,-80px)) scale(0);}}
+.float-coin{position:fixed;pointer-events:none;z-index:60;font-family:'Cinzel Decorative',serif;font-size:1.3rem;font-weight:900;color:var(--gold-bright);text-shadow:0 0 10px rgba(255,215,0,0.8);animation:floatUp 0.9s ease-out forwards;}
+@keyframes floatUp{0%{opacity:1;transform:translateY(0) scale(1);}60%{opacity:1;}100%{opacity:0;transform:translateY(-90px) scale(1.4);}}
+.bounce-coin{position:fixed;pointer-events:none;z-index:55;font-size:1.6rem;animation:bounceCoin 0.7s cubic-bezier(0.36,0.07,0.19,0.97) forwards;}
+@keyframes bounceCoin{0%{transform:translateY(0) scale(1);opacity:1;}30%{transform:translateY(-50px) scale(1.3);}55%{transform:translateY(-20px) scale(1.1);}75%{transform:translateY(-40px) scale(1.2);}100%{transform:translateY(-110px) scale(0.8);opacity:0;}}
+.screen-flash{position:fixed;inset:0;background:var(--gold-bright);opacity:0;pointer-events:none;z-index:5;animation:flash 0.12s ease-out;}
+@keyframes flash{0%{opacity:0.07;}100%{opacity:0;}}
+/* TOAST */
+.toast{position:fixed;top:1rem;left:50%;transform:translateX(-50%);background:rgba(8,6,8,0.95);border:1px solid var(--border);color:var(--text);padding:0.5rem 1.2rem;border-radius:20px;font-size:0.75rem;letter-spacing:1px;opacity:0;transition:opacity 0.25s;z-index:300;white-space:nowrap;pointer-events:none;}
+.toast.show{opacity:1;}
+.toast.error{border-color:rgba(255,32,32,0.5);color:#FF6B6B;}
+.toast.success{border-color:rgba(76,175,80,0.5);color:#81C784;}
+.toast.warn{border-color:rgba(255,165,0,0.5);color:#FFD580;}
+/* TX PENDING */
+.tx-pending{text-align:center;padding:1rem;color:var(--text-dim);font-size:0.8rem;}
+.tx-spinner{display:inline-block;width:20px;height:20px;border:2px solid rgba(212,175,55,0.2);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:0.5rem;}
+@keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+<div class="bg-grid"></div>
+<div class="bg-glow"></div>
+<div class="toast" id="toast"></div>
+
+<div id="loading">
+  <div class="loading-logo">THE ARENA</div>
+  <div class="loading-sub">Enter the battlefield</div>
+  <div class="loading-bar-wrap"><div class="loading-bar"></div></div>
+</div>
+
+<div id="app">
+  <div class="top-bar">
+    <div class="arena-logo">⚔️ ARENA</div>
+    <div class="top-right">
+      <div class="badge" id="rankBadge">#—</div>
+      <div class="badge" id="walletBadge" onclick="openShop()" style="color:var(--text-dim)">💰 Shop</div>
+    </div>
+  </div>
+
+  <div class="coins-wrap">
+    <span class="coins-amount" id="coinsDisplay">—</span>
+    <div class="coins-label">⚔ Arena Coins ⚔</div>
+  </div>
+
+  <div class="combo-wrap">
+    <div class="combo-badge" id="comboBadge">⚡ COMBO x1</div>
+  </div>
+
+  <div class="energy-section">
+    <div class="energy-header">
+      <span>⚡ Energy</span>
+      <span class="energy-val"><span id="energyVal">—</span>/100</span>
+    </div>
+    <div class="energy-track"><div class="energy-fill" id="energyFill" style="width:100%"></div></div>
+  </div>
+  <div class="regen-info" id="regenInfo"></div>
+
+  <div class="arena-ring">
+    <div class="ring-outer"></div>
+    <div class="ring-mid"></div>
+    <div class="ring-glow"></div>
+    <button class="tap-btn" id="tapBtn" ontouchstart="handleTap(event)" onclick="handleTap(event)">
+      <div class="btn-icon">⚔️</div>
+      <div class="btn-power" id="powerLabel">POWER x1</div>
+    </button>
+  </div>
+
+  <div class="tap-hint">TAP TO FIGHT</div>
+
+  <div class="action-row">
+    <button class="action-btn" onclick="openDaily()">📅 Daily</button>
+    <button class="action-btn gold" onclick="openShop()">⚡ Shop</button>
+    <button class="action-btn" onclick="openPrize()">🏆 Prize</button>
+  </div>
+</div>
+
+<div class="stats-bar">
+  <div class="stat-item"><div class="stat-value" id="powerDisplay">x1</div><div class="stat-label">Power</div></div>
+  <div class="stat-item"><div class="stat-value" id="tapsDisplay">0</div><div class="stat-label">Strikes</div></div>
+  <div class="stat-item"><div class="stat-value" id="rankDisplay">#—</div><div class="stat-label">Rank</div></div>
+</div>
+
+<!-- SHOP MODAL -->
+<div class="modal-overlay" id="shopModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('shopModal')">✕</button>
+    <div class="modal-title">⚡ Arena Shop</div>
+    <div class="modal-sub">Pay with AVAX · All → Prize Pool</div>
+
+    <div class="prize-box">
+      <div class="prize-item"><div class="prize-amount" id="ppAvax">0.00</div><div class="prize-label">AVAX Prize</div></div>
+      <div class="prize-item"><div class="prize-amount" id="ppArena">0</div><div class="prize-label">$ARENA Prize</div></div>
+    </div>
+
+    <!-- Wallet status -->
+    <div class="wallet-status" id="walletStatus">🔗 No wallet connected</div>
+    <button class="connect-btn" id="connectBtn" onclick="toggleWallet()">🔗 CONNECT WALLET</button>
+
+    <div class="section-title">⚡ Energy Refills</div>
+
+    <div class="shop-item">
+      <div class="item-left"><div class="item-name">⚡ Small Refill</div><div class="item-desc">+25 Energy instantly</div></div>
+      <div style="display:flex;align-items:center">
+        <div class="item-price"><div class="price-avax">0.05 AVAX</div><div class="price-arena">500 $ARENA</div></div>
+        <button class="wallet-pay-btn" onclick="buyItem('energy_25',0.05)">BUY</button>
+      </div>
+    </div>
+
+    <div class="shop-item featured">
+      <div class="item-left"><div class="item-name">⚡⚡ Full Refill</div><div class="item-desc">100 Energy — full tank!</div></div>
+      <div style="display:flex;align-items:center">
+        <div class="item-price"><div class="price-avax">0.15 AVAX</div><div class="price-arena">1,500 $ARENA</div></div>
+        <button class="wallet-pay-btn" onclick="buyItem('energy_100',0.15)">BUY</button>
+      </div>
+    </div>
+
+    <div class="section-title">🚀 Tap Power <span style="font-size:0.5rem;color:var(--text-dim)">(resets each season)</span></div>
+
+    <div class="shop-item" id="si_upgrade_2">
+      <div class="item-left"><div class="item-name">⚡ Power x2</div><div class="item-desc">2x coins per tap</div></div>
+      <div style="display:flex;align-items:center">
+        <div class="item-price"><div class="price-avax">0.3 AVAX</div><div class="price-arena">3,000 $ARENA</div></div>
+        <button class="wallet-pay-btn" id="btn_upgrade_2" onclick="buyItem('upgrade_2',0.3)">BUY</button>
+      </div>
+    </div>
+
+    <div class="shop-item" id="si_upgrade_5">
+      <div class="item-left"><div class="item-name">🔥 Power x5</div><div class="item-desc">5x coins per tap</div></div>
+      <div style="display:flex;align-items:center">
+        <div class="item-price"><div class="price-avax">0.8 AVAX</div><div class="price-arena">8,000 $ARENA</div></div>
+        <button class="wallet-pay-btn" id="btn_upgrade_5" onclick="buyItem('upgrade_5',0.8)">BUY</button>
+      </div>
+    </div>
+
+    <div class="shop-item" id="si_upgrade_10">
+      <div class="item-left"><div class="item-name">💎 Power x10</div><div class="item-desc">Dominate the leaderboard</div></div>
+      <div style="display:flex;align-items:center">
+        <div class="item-price"><div class="price-avax">2.0 AVAX</div><div class="price-arena">20,000 $ARENA</div></div>
+        <button class="wallet-pay-btn" id="btn_upgrade_10" onclick="buyItem('upgrade_10',2.0)">BUY</button>
+      </div>
+    </div>
+
+    <div class="shop-item" id="si_upgrade_25">
+      <div class="item-left"><div class="item-name">🚀 Power x25</div><div class="item-desc">Arena Legend tier</div></div>
+      <div style="display:flex;align-items:center">
+        <div class="item-price"><div class="price-avax">5.0 AVAX</div><div class="price-arena">50,000 $ARENA</div></div>
+        <button class="wallet-pay-btn" id="btn_upgrade_25" onclick="buyItem('upgrade_25',5.0)">BUY</button>
+      </div>
+    </div>
+
+    <div id="txPending" style="display:none">
+      <div class="tx-pending">
+        <div class="tx-spinner"></div>
+        <div id="txPendingMsg">Processing transaction...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DAILY MODAL -->
+<div class="modal-overlay" id="dailyModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('dailyModal')">✕</button>
+    <div class="modal-title">📅 Daily Reward</div>
+    <div class="modal-sub">Claim every 24h — keep your streak!</div>
+    <div class="streak-bar" id="streakBar"></div>
+    <div id="dailyInfo" style="text-align:center;font-size:0.8rem;color:var(--text-dim);margin:0.5rem 0;min-height:20px"></div>
+    <button class="claim-btn" id="claimBtn" onclick="claimDaily()">⚔️ CLAIM REWARD</button>
+  </div>
+</div>
+
+<!-- PRIZE MODAL -->
+<div class="modal-overlay" id="prizeModal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('prizeModal')">✕</button>
+    <div class="modal-title">🏆 Prize Pool</div>
+    <div class="modal-sub">All purchases fund the prizes</div>
+    <div class="prize-box">
+      <div class="prize-item"><div class="prize-amount" id="ppAvax2">0.00</div><div class="prize-label">AVAX</div></div>
+      <div class="prize-item"><div class="prize-amount" id="ppArena2">0</div><div class="prize-label">$ARENA</div></div>
+    </div>
+    <div style="font-size:0.75rem;color:var(--text-dim);line-height:1.9;text-align:center">
+      🥇 <b style="color:var(--gold)">1st</b> — 40% of prize pool<br>
+      🥈 <b style="color:var(--gold)">2nd</b> — 20% of prize pool<br>
+      🥉 <b style="color:var(--gold)">3rd</b> — 10% of prize pool<br>
+      🔥 <b style="color:var(--gold)">4th–10th</b> — share 30%<br>
+      ⭐ <b style="color:var(--gold)">7-day streak</b> — bonus $ARENA<br><br>
+      <span style="font-size:0.65rem">Season resets monthly.<br>Coins accumulate forever → future $ARENA.</span>
+    </div>
+  </div>
+</div>
+
+<!-- Reown AppKit web component -->
+<script type="module">
+  import { createAppKit } from 'https://cdn.jsdelivr.net/npm/@reown/appkit@1.6.8/dist/index.js'
+  import { EthersAdapter } from 'https://cdn.jsdelivr.net/npm/@reown/appkit-adapter-ethers@1.6.8/dist/index.js'
+  import { avalanche } from 'https://cdn.jsdelivr.net/npm/@reown/appkit/dist/networks/index.js'
+  import { ethers } from 'https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.min.js'
+
+  const PROJECT_ID  = '8166c5ca3b14d2b405ba21c23f548565'
+  const TREASURY    = window.TREASURY_ADDR || ''
+  const BACKEND_URL = window.BACKEND_URL || ''
+
+  const ethersAdapter = new EthersAdapter()
+
+  const modal = createAppKit({
+    adapters: [ethersAdapter],
+    networks: [avalanche],
+    defaultNetwork: avalanche,
+    projectId: PROJECT_ID,
+    metadata: {
+      name: 'Arena Coins',
+      description: 'Tap to earn on The Arena',
+      url: window.location.origin,
+      icons: ['https://arena.social/icons/logo.svg']
+    },
+    features: { analytics: false, email: false, socials: false }
+  })
+
+  // Esponi modal globalmente
+  window._arenaModal = modal
+  window._ethers = ethers
+
+  // Ascolta eventi connessione
+  modal.subscribeAccount(account => {
+    window._walletAddress = account?.address || null
+    updateWalletUI()
+  })
+
+  window.toggleWallet = async () => {
+    if (window._walletAddress) {
+      modal.disconnect()
+    } else {
+      modal.open()
+    }
+  }
+
+  window.sendAvaxPayment = async (amountAvax) => {
+    if (!window._walletAddress) {
+      showToast('Connect your wallet first!', 'error')
+      return null
+    }
+    if (!TREASURY || TREASURY === '0xTUO_WALLET_AVAX') {
+      showToast('Treasury not configured', 'error')
+      return null
+    }
+
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum || modal.getWalletProvider())
+      const signer   = await provider.getSigner()
+      const wei      = ethers.parseEther(amountAvax.toString())
+      const tx = await signer.sendTransaction({
+        to:    TREASURY,
+        value: wei,
+      })
+      return tx.hash
+    } catch (err) {
+      if (err.code === 4001 || err.code === 'ACTION_REJECTED') {
+        showToast('Transaction cancelled', 'warn')
+      } else {
+        showToast('Transaction failed: ' + (err.shortMessage || err.message), 'error')
+      }
+      return null
+    }
+  }
+</script>
+
+<script>
+// ════════════════════════════════════════════
+//  CONFIG
+// ════════════════════════════════════════════
+const SUPABASE_URL  = 'SUPABASE_URL_PLACEHOLDER'
+const SUPABASE_ANON = 'SUPABASE_ANON_PLACEHOLDER'
+const BACKEND_URL   = 'RENDER_URL_PLACEHOLDER'  // es. https://arena-bot.onrender.com
+window.TREASURY_ADDR = 'TREASURY_ADDR_PLACEHOLDER'
+window.BACKEND_URL   = BACKEND_URL
+
+const HEADERS = {
+  'apikey': SUPABASE_ANON,
+  'Authorization': `Bearer ${SUPABASE_ANON}`,
+  'Content-Type': 'application/json'
+}
+
+const MAX_ENERGY = 100
+const ENERGY_REGEN_MIN = 5
+const STREAK_REWARDS = [250,250,250,250,250,250,1000]
+
+let state = {
+  userId: null, coins: 0, tapPower: 1, taps: 0,
+  pending: 0, syncing: false,
+  energy: 100, streak: 0, lastClaim: null,
+  combo: 1, comboTimer: null, lastTapTime: 0,
+  COMBO_WIN: 600, MAX_COMBO: 10,
+}
+let syncTimer = null, regenInterval = null
+
+// ════ TELEGRAM ════
+const tg = window.Telegram.WebApp
+tg.ready(); tg.expand(); tg.enableClosingConfirmation()
+const params = new URLSearchParams(window.location.search)
+state.userId = params.get('uid') || tg.initDataUnsafe?.user?.id
+
+// ════ SUPABASE ════
+async function sbGet(table, filters = {}) {
+  try {
+    const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`)
+    Object.entries(filters).forEach(([k,v]) => url.searchParams.set(k,v))
+    const r = await fetch(url, { headers: HEADERS })
+    return r.ok ? r.json() : []
+  } catch { return [] }
+}
+async function sbPatch(table, filter, data) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${filter}`, {
+      method: 'PATCH', headers: HEADERS, body: JSON.stringify(data)
+    }); return r.ok
+  } catch { return false }
+}
+async function sbRpc(fn, body) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+      method: 'POST', headers: HEADERS, body: JSON.stringify(body)
+    }); return r.ok
+  } catch { return false }
+}
+
+// ════ ENERGY ════
+function calcEnergy(saved, lastISO) {
+  if (!lastISO) return saved ?? MAX_ENERGY
+  const elapsed = (Date.now() - new Date(lastISO).getTime()) / 60000
+  return Math.min((saved ?? 0) + Math.floor(elapsed / ENERGY_REGEN_MIN), MAX_ENERGY)
+}
+function startRegenTimer() {
+  clearInterval(regenInterval)
+  regenInterval = setInterval(() => {
+    const el = document.getElementById('regenInfo')
+    if (state.energy >= MAX_ENERGY) {
+      el.innerHTML = '<span>⚡ Energy full!</span>'
+    } else {
+      const toFull = (MAX_ENERGY - state.energy) * ENERGY_REGEN_MIN
+      const h = Math.floor(toFull / 60), m = toFull % 60
+      el.innerHTML = `+1 in <span>${ENERGY_REGEN_MIN}m</span> · Full in <span>${h>0?h+'h ':''}</span><span>${m}m</span>`
+    }
+  }, 5000)
+}
+
+// ════ LOAD USER ════
+async function loadUser() {
+  if (!state.userId) { showToast('Open from Telegram bot!', 'error'); return }
+  const data = await sbGet('users', {
+    id: `eq.${state.userId}`,
+    select: 'coins,tap_power,energy,last_energy_update,streak,last_claim'
+  })
+  if (!data || !data.length) { showToast('Send /start to the bot first', 'error'); return }
+  const u = data[0]
+  state.energy    = calcEnergy(u.energy, u.last_energy_update)
+  state.coins     = u.coins || 0
+  state.tapPower  = u.tap_power || 1
+  state.streak    = u.streak || 0
+  state.lastClaim = u.last_claim
+  await sbPatch('users', `id=eq.${state.userId}`, {
+    energy: state.energy,
+    last_energy_update: new Date().toISOString()
+  })
+  updateUI(); updateEnergyUI(); startRegenTimer()
+  loadRank(); loadPrizePool()
+
+  // Apri shop automaticamente se ?shop=1
+  if (params.get('shop') === '1') setTimeout(() => openShop(), 1800)
+
+  setTimeout(() => {
+    document.getElementById('loading').classList.add('hide')
+    document.getElementById('app').classList.add('show')
+  }, 1500)
+}
+async function loadRank() {
+  const d = await sbGet('users', { select: 'id', order: 'coins.desc' })
+  if (!d || !d.length) return
+  const rank = d.findIndex(u => String(u.id) === String(state.userId)) + 1
+  const s = rank > 0 ? `#${rank}` : '#?'
+  document.getElementById('rankDisplay').textContent = s
+  document.getElementById('rankBadge').textContent = s
+}
+async function loadPrizePool() {
+  const d = await sbGet('prize_pool', { id: 'eq.1' })
+  if (!d || !d.length) return
+  const av = parseFloat(d[0].total_avax || 0).toFixed(2)
+  const ar = parseInt(d[0].total_arena || 0).toLocaleString()
+  ;['ppAvax','ppAvax2'].forEach(id => document.getElementById(id).textContent = av)
+  ;['ppArena','ppArena2'].forEach(id => document.getElementById(id).textContent = ar)
+}
+
+// ════ WALLET UI ════
+window._walletAddress = null
+function updateWalletUI() {
+  const addr = window._walletAddress
+  const statusEl = document.getElementById('walletStatus')
+  const connectBtn = document.getElementById('connectBtn')
+  const badge = document.getElementById('walletBadge')
+  if (addr) {
+    statusEl.className = 'wallet-status connected'
+    statusEl.textContent = `✅ ${addr.slice(0,6)}...${addr.slice(-4)}`
+    connectBtn.className = 'connect-btn disconnect'
+    connectBtn.textContent = '🔌 Disconnect Wallet'
+    badge.textContent = `✅ ${addr.slice(0,6)}...`
+    badge.style.color = '#81C784'
+  } else {
+    statusEl.className = 'wallet-status'
+    statusEl.textContent = '🔗 No wallet connected'
+    connectBtn.className = 'connect-btn'
+    connectBtn.textContent = '🔗 CONNECT WALLET'
+    badge.textContent = '💰 Shop'
+    badge.style.color = 'var(--text-dim)'
+  }
+}
+
+// ════ BUY ITEM — automatic payment ════
+async function buyItem(itemId, amountAvax) {
+  if (!window._walletAddress) {
+    showToast('Connect your wallet first!', 'warn')
+    return
+  }
+
+  // Disabilita tutti i bottoni durante la transazione
+  const pending = document.getElementById('txPending')
+  const msg = document.getElementById('txPendingMsg')
+  pending.style.display = 'block'
+  msg.textContent = 'Waiting for wallet approval...'
+  document.querySelectorAll('.wallet-pay-btn').forEach(b => b.disabled = true)
+
+  try {
+    // 1. Invia transazione AVAX
+    const txHash = await window.sendAvaxPayment(amountAvax)
+    if (!txHash) {
+      pending.style.display = 'none'
+      document.querySelectorAll('.wallet-pay-btn').forEach(b => b.disabled = false)
+      return
+    }
+
+    msg.textContent = 'Verifying transaction on Avalanche...'
+
+    // 2. Chiama backend per verificare e accreditare
+    const r = await fetch(`${BACKEND_URL}/api/verify-payment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tx_hash: txHash,
+        item_id: itemId,
+        user_id: state.userId
+      })
+    })
+    const result = await r.json()
+
+    if (result.ok) {
+      // Aggiorna stato locale
+      if (result.energy !== undefined) {
+        state.energy = result.energy
+        updateEnergyUI()
+      }
+      if (result.tap_power !== undefined) {
+        state.tapPower = result.tap_power
+        updateUI()
+      }
+      showToast(`✅ Purchase confirmed! TX: ${txHash.slice(0,10)}...`, 'success')
+      updateUpgradeBtns()
+      loadPrizePool()
+    } else {
+      showToast(`❌ ${result.error || 'Verification failed'}`, 'error')
+    }
+  } catch (err) {
+    showToast('Network error. Try /pay in the bot.', 'error')
+    logger?.error?.(err)
+  } finally {
+    pending.style.display = 'none'
+    document.querySelectorAll('.wallet-pay-btn').forEach(b => b.disabled = false)
+  }
+}
+
+function updateUpgradeBtns() {
+  [{id:'btn_upgrade_2',power:2},{id:'btn_upgrade_5',power:5},
+   {id:'btn_upgrade_10',power:10},{id:'btn_upgrade_25',power:25}].forEach(({id,power}) => {
+    const b = document.getElementById(id)
+    if (b && power <= state.tapPower) {
+      b.textContent = '✅ OWNED'; b.disabled = true
+      b.className = 'wallet-pay-btn owned-btn'
+    }
+  })
+}
+
+// ════ COMBO ════
+function updateCombo() {
+  const now = Date.now(), delta = now - state.lastTapTime
+  state.combo = delta < state.COMBO_WIN ? Math.min(state.combo+1, state.MAX_COMBO) : 1
+  state.lastTapTime = now
+  const b = document.getElementById('comboBadge')
+  if (state.combo >= 3) {
+    b.textContent = `⚡ COMBO x${state.combo}`; b.classList.add('show')
+    playCombo(state.combo)
+    const i = Math.min((state.combo-3)/7,1)
+    b.style.background = `linear-gradient(135deg,rgb(${139+Math.round(116*i)},${Math.round(30*(1-i))},0),rgb(255,${Math.round(69*(1-i))},0))`
+  } else { b.classList.remove('show') }
+  clearTimeout(state.comboTimer)
+  state.comboTimer = setTimeout(() => { state.combo=1; document.getElementById('comboBadge').classList.remove('show') }, state.COMBO_WIN+50)
+}
+
+// ════ TAP ════
+let lastTouchTime = 0
+function handleTap(e) {
+  const now = Date.now()
+  if (now - lastTouchTime < 120) return
+  lastTouchTime = now; e.preventDefault()
+  if (!state.userId) return
+  if (state.energy <= 0) {
+    playNoEnergy()
+    const btn = document.getElementById('tapBtn')
+    btn.classList.add('no-energy')
+    setTimeout(() => btn.classList.remove('no-energy'), 300)
+    showToast('⚡ No energy! Buy a refill.', 'error'); return
+  }
+  updateCombo()
+  const bonus = state.combo >= 3 ? state.combo : 1
+  const earned = state.tapPower * bonus
+  state.coins += earned; state.taps += 1; state.pending += earned; state.energy -= 1
+  updateUI(); updateEnergyUI()
+  playTap(state.combo)
+  spawnParticles(e); spawnFloat(e, earned)
+  if (state.combo >= 5) spawnBounce(e)
+  flash(); bumpCoins()
+  clearTimeout(syncTimer)
+  syncTimer = setTimeout(syncToDb, 1500)
+}
+
+async function syncToDb() {
+  if (state.pending === 0 || state.syncing) return
+  state.syncing = true
+  const coins = state.pending; state.pending = 0
+  await Promise.all([
+    sbRpc('add_coins', { user_id: parseInt(state.userId), amount: coins }),
+    sbPatch('users', `id=eq.${state.userId}`, {
+      energy: state.energy,
+      last_energy_update: new Date().toISOString()
+    })
+  ])
+  state.syncing = false
+}
+
+// ════ DAILY ════
+async function openDaily() {
+  openModal('dailyModal'); renderStreak()
+  const btn = document.getElementById('claimBtn')
+  const info = document.getElementById('dailyInfo')
+  if (!state.lastClaim) { btn.disabled = false; info.textContent = '🎁 First claim!'; return }
+  const diffH = (Date.now() - new Date(state.lastClaim).getTime()) / 3600000
+  if (diffH < 24) {
+    btn.disabled = true
+    const rH = Math.floor(24-diffH), rM = Math.floor((24-diffH-rH)*60)
+    info.textContent = `⏳ Next in ${rH}h ${rM}m`
+  } else {
+    btn.disabled = false
+    const rew = STREAK_REWARDS[Math.min(state.streak, 6)]
+    info.textContent = `🎁 Ready! +${rew.toLocaleString()} coins`
+  }
+}
+function renderStreak() {
+  const bar = document.getElementById('streakBar'); bar.innerHTML = ''
+  for (let i = 0; i < 7; i++) {
+    const d = document.createElement('div')
+    d.className = 'streak-day' + (i < state.streak ? ' done' : i === state.streak ? ' active' : '')
+    const icon = i === 6 ? '⭐' : i < state.streak ? '🔥' : '⚔️'
+    d.innerHTML = `<div class="day-icon">${icon}</div><div class="day-num">D${i+1}</div><div class="day-coins">${STREAK_REWARDS[i]}</div>`
+    bar.appendChild(d)
+  }
+}
+async function claimDaily() {
+  const btn = document.getElementById('claimBtn'); btn.disabled = true
+  const now = new Date(), last = state.lastClaim ? new Date(state.lastClaim) : null
+  const diffH = last ? (now-last)/3600000 : 999
+  if (diffH < 24) { showToast('Already claimed!', 'error'); return }
+  const newStreak = diffH > 48 ? 1 : Math.min(state.streak+1, 7)
+  const reward = STREAK_REWARDS[Math.min(newStreak-1, 6)]
+  await sbPatch('users', `id=eq.${state.userId}`, {
+    coins: state.coins+reward, season_coins: (state.coins + reward),
+    streak: newStreak, last_claim: now.toISOString()
+  })
+  state.coins += reward; state.streak = newStreak; state.lastClaim = now.toISOString()
+  playClaim(); updateUI(); renderStreak()
+  document.getElementById('dailyInfo').textContent = `✅ +${reward.toLocaleString()} coins! Day ${newStreak}/7`
+  showToast(`+${reward.toLocaleString()} coins! 🔥 Streak ${newStreak}/7`, 'success')
+}
+
+// ════ SHOP / PRIZE ════
+function openShop() { updateUpgradeBtns(); openModal('shopModal'); loadPrizePool() }
+function openPrize() { openModal('prizeModal'); loadPrizePool() }
+
+// ════ MODALS ════
+function openModal(id) { document.getElementById(id).classList.add('show') }
+function closeModal(id) { document.getElementById(id).classList.remove('show') }
+document.querySelectorAll('.modal-overlay').forEach(el => {
+  el.addEventListener('click', e => { if (e.target === el) el.classList.remove('show') })
+})
+
+// ════ UI ════
+function updateUI() {
+  document.getElementById('coinsDisplay').textContent = state.coins.toLocaleString('en-US')
+  document.getElementById('powerDisplay').textContent = `x${state.tapPower}`
+  document.getElementById('powerLabel').textContent   = `POWER x${state.tapPower}`
+  document.getElementById('tapsDisplay').textContent  = state.taps.toLocaleString('en-US')
+}
+function updateEnergyUI() {
+  const pct = Math.max(0, (state.energy/MAX_ENERGY)*100)
+  const fill = document.getElementById('energyFill')
+  fill.style.width = pct + '%'
+  document.getElementById('energyVal').textContent = Math.max(0, state.energy)
+  fill.style.background = state.energy < 20 ? 'linear-gradient(90deg,#8B0000,#FF2020)' :
+    state.energy < 50 ? 'linear-gradient(90deg,#8B4500,#FF8C00)' :
+    'linear-gradient(90deg,var(--gold-dark),var(--gold-bright))'
+}
+function bumpCoins() {
+  const el = document.getElementById('coinsDisplay')
+  el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump')
+  setTimeout(() => el.classList.remove('bump'), 80)
+}
+
+// ════ AUDIO ════
+let audioCtx = null
+function audio() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)()
+  return audioCtx
+}
+function playTap(combo=1) {
+  try { const c=audio(),o=c.createOscillator(),g=c.createGain(); o.connect(g);g.connect(c.destination); o.frequency.setValueAtTime(200+combo*25,c.currentTime); o.frequency.exponentialRampToValueAtTime(350+combo*30,c.currentTime+0.06); g.gain.setValueAtTime(0.12,c.currentTime); g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+0.12); o.type='sine'; o.start(c.currentTime); o.stop(c.currentTime+0.15); } catch(e) {}
+}
+function playCombo(level) {
+  try { const c=audio(),notes=[400,500,600,700,800],n=notes[Math.min(level-3,4)]; const o=c.createOscillator(),g=c.createGain(); o.connect(g);g.connect(c.destination); o.frequency.setValueAtTime(n,c.currentTime); o.frequency.exponentialRampToValueAtTime(n*1.4,c.currentTime+0.1); g.gain.setValueAtTime(0.18,c.currentTime); g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+0.22); o.type='triangle'; o.start(c.currentTime); o.stop(c.currentTime+0.25); } catch(e) {}
+}
+function playNoEnergy() {
+  try { const c=audio(),o=c.createOscillator(),g=c.createGain(); o.connect(g);g.connect(c.destination); o.frequency.setValueAtTime(150,c.currentTime); o.frequency.exponentialRampToValueAtTime(80,c.currentTime+0.15); g.gain.setValueAtTime(0.18,c.currentTime); g.gain.exponentialRampToValueAtTime(0.001,c.currentTime+0.2); o.type='sawtooth'; o.start(c.currentTime); o.stop(c.currentTime+0.2); } catch(e) {}
+}
+function playClaim() {
+  try { const c=audio(); [400,500,630,800].forEach((f,i) => { const t=c.currentTime+i*0.09,o=c.createOscillator(),g=c.createGain(); o.connect(g);g.connect(c.destination); o.frequency.setValueAtTime(f,t); g.gain.setValueAtTime(0.15,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.18); o.type='sine'; o.start(t); o.stop(t+0.22); }); } catch(e) {}
+}
+
+// ════ FX ════
+const FX = ['#FFD700','#D4AF37','#FF2020','#FF8C00','#FFF0A0','#FF4500']
+function spawnParticles(e) {
+  const count = Math.min(6+state.combo*2,18)
+  const x = e.clientX ?? window.innerWidth/2, y = e.clientY ?? window.innerHeight/2
+  for (let i=0;i<count;i++) {
+    const el=document.createElement('div'); el.className='particle'
+    const a=(Math.PI*2*i)/count+(Math.random()-0.5)*0.6,d=25+Math.random()*55,s=3+Math.random()*5
+    const dur=0.45+Math.random()*0.45,c=FX[Math.floor(Math.random()*FX.length)]
+    el.style.cssText=`left:${x}px;top:${y}px;width:${s}px;height:${s}px;background:${c};box-shadow:0 0 ${s*2}px ${c};--tx:${Math.cos(a)*d}px;--ty:${Math.sin(a)*d-25}px;--dur:${dur}s;`
+    document.body.appendChild(el); setTimeout(() => el.remove(), dur*1000)
+  }
+}
+function spawnFloat(e,earned) {
+  const el=document.createElement('div'); el.className='float-coin'; el.textContent=`+${earned}`
+  const x=e.clientX??window.innerWidth/2,y=e.clientY??window.innerHeight/2
+  el.style.left=`${x-15+(Math.random()-0.5)*35}px`; el.style.top=`${y-20}px`
+  if (state.combo>=5) { el.style.color='#FF6347'; el.style.fontSize='1.7rem' }
+  document.body.appendChild(el); setTimeout(() => el.remove(), 900)
+}
+function spawnBounce(e) {
+  const el=document.createElement('div'); el.className='bounce-coin'; el.textContent='🪙'
+  el.style.left=`${(e.clientX??window.innerWidth/2)+(Math.random()-0.5)*50}px`
+  el.style.top=`${e.clientY??window.innerHeight/2}px`
+  document.body.appendChild(el); setTimeout(() => el.remove(), 700)
+}
+function flash() {
+  const el=document.createElement('div'); el.className='screen-flash'
+  document.body.appendChild(el); setTimeout(() => el.remove(), 150)
+}
+
+// ════ TOAST ════
+let toastTimer = null
+function showToast(msg, type='') {
+  const t = document.getElementById('toast'); t.textContent = msg
+  t.className = 'toast show' + (type ? ` ${type}` : '')
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3000)
+}
+
+// ════ CLEANUP ════
+window.addEventListener('pagehide', syncToDb)
+document.addEventListener('visibilitychange', () => { if (document.hidden) syncToDb() })
+
+// ════ START ════
+loadUser()
+</script>
+</body>
+</html>
