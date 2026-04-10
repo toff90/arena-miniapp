@@ -1,10 +1,8 @@
-# render.yaml
 services:
   # 1. Bot Telegram (Web Service Python)
   - type: web
-    name: arena-tap
+    name: arena-bot
     runtime: python
-    repo: https://github.com/tuo-username/arena-project
     branch: main
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
@@ -23,13 +21,11 @@ services:
         sync: false
 
   # 2. Frontend (Static Site)
-  - type: web
+  - type: static
     name: arena-frontend
-    runtime: static
-    repo: https://github.com/tuo-username/arena-project
     branch: main
-    buildCommand: ""  # Opzionale, se devi compilare qualcosa
-    publishDir: ./    # Directory che contiene index.html
+    buildCommand: ""   # se non hai build steps
+    publishDir: .      # se index.html è nella root del repo
     envVars:
       - key: SUPABASE_URL
         sync: false
