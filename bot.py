@@ -1,14 +1,17 @@
 """
-🔥 Arena Bot v3.0
-- Fix shop HTML (no markdown parse errors)
-- /verify-payment API endpoint per pagamenti automatici in-app
-- /newseason resetta anche tap_power
-- Dual leaderboard (all-time + season)
-- Sprint events
-- Flask health + API server su Render
+🔥 Arena Bot v3.1 — Webhook Edition
+- Webhook invece di polling → niente più conflitti su Render
+- Endpoint /telegram per ricevere gli update
+- Flask health + payment API come prima
+- Tutte le funzionalità invariate
 """
 
-import os, logging, datetime, threading, json
+import os
+import logging
+import datetime
+import threading
+import json
+import asyncio
 import httpx
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
@@ -21,13 +24,15 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ─── Config ────────────────────────────────────────────────
-BOT_TOKEN     = os.getenv("BOT_TOKEN")
-SUPABASE_URL  = os.getenv("SUPABASE_URL")
-SUPABASE_KEY  = os.getenv("SUPABASE_SERVICE_KEY")
-MINIAPP_URL   = os.getenv("MINIAPP_URL")
-TREASURY_ADDR = os.getenv("TREASURY_ADDR", "")
-ADMIN_IDS     = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
-AVAX_RPC      = "https://api.avax.network/ext/bc/C/rpc"
+BOT_TOKEN      = os.getenv("BOT_TOKEN")
+SUPABASE_URL   = os.getenv("SUPABASE_URL")
+SUPABASE_KEY   = os.getenv("SUPABASE_SERVICE_KEY")
+MINIAPP_URL    = os.getenv("MINIAPP_URL")
+TREASURY_ADDR  = os.getenv("TREASURY_ADDR", "")
+ADMIN_IDS      = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()]
+WEBHOOK_URL    = os.getenv("WEBHOOK_URL")          # es. https://arena-tap.onrender.com
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")   # stringa casuale per sicurezza
+AVAX_RPC       = "https://api.avax.network/ext/bc/C/rpc"
 
 HEADERS = {
     "apikey": SUPABASE_KEY,
@@ -36,7 +41,6 @@ HEADERS = {
     "Prefer": "return=representation"
 }
 
-# item_id → (avax, arena, label, action, value)
 SHOP_ITEMS = {
     "energy_25":  (0.05,   500, "⚡ Small Refill",  "energy",  25),
     "energy_100": (0.15,  1500, "⚡⚡ Full Refill",  "energy",  100),
@@ -49,11 +53,7 @@ SHOP_ITEMS = {
 STREAK_BONUS = {1:250, 2:250, 3:250, 4:250, 5:250, 6:250, 7:1000}
 PRIZE_DIST   = [0.40, 0.20, 0.10, 0.05, 0.05, 0.05, 0.05, 0.03, 0.03, 0.04]
 
-
-# ═══════════════════════════════════════════════════════════
-#  FLASK SERVER  (health + payment verification API)
-# ═══════════════════════════════════════════════════════════
-
+# ─── Flask App ─────────────────────────────────────────────
 flask_app = Flask(__name__)
 
 @flask_app.route('/health')
@@ -62,30 +62,21 @@ def health():
 
 @flask_app.route('/api/verify-payment', methods=['POST'])
 def verify_payment():
-    """
-    Chiamato dalla MiniApp dopo che l'utente ha inviato AVAX.
-    Body JSON: { tx_hash, item_id, user_id }
-    Verifica la TX su Avalanche C-Chain e accredita l'item.
-    """
     try:
         data = request.get_json(force=True)
         tx_hash = data.get("tx_hash", "").strip()
         item_id = data.get("item_id", "").strip().lower()
         user_id = int(data.get("user_id", 0))
 
-        # Validazioni base
         if not tx_hash or not item_id or not user_id:
             return jsonify({"ok": False, "error": "Missing fields"}), 400
-
         if item_id not in SHOP_ITEMS:
             return jsonify({"ok": False, "error": "Unknown item"}), 400
-
         if not tx_hash.startswith("0x") or len(tx_hash) < 40:
             return jsonify({"ok": False, "error": "Invalid tx hash"}), 400
 
         import requests as req_lib
 
-        # 1. Controlla se TX già usata
         r = req_lib.get(
             f"{SUPABASE_URL}/rest/v1/payments",
             headers=HEADERS,
@@ -94,7 +85,6 @@ def verify_payment():
         if r.ok and r.json():
             return jsonify({"ok": False, "error": "TX already used"}), 409
 
-        # 2. Verifica TX su Avalanche C-Chain
         avax_price, _, _, action, value = SHOP_ITEMS[item_id]
         avax_wei = int(avax_price * 1e18)
 
@@ -104,25 +94,17 @@ def verify_payment():
         }
         rpc_r = req_lib.post(AVAX_RPC, json=rpc_payload, timeout=10)
         tx_data = rpc_r.json().get("result")
-
         if not tx_data:
             return jsonify({"ok": False, "error": "TX not found on chain"}), 404
 
-        # Controlla destinatario (case-insensitive)
         to_addr = (tx_data.get("to") or "").lower()
-        treasury = TREASURY_ADDR.lower()
-        if to_addr != treasury:
+        if to_addr != TREASURY_ADDR.lower():
             return jsonify({"ok": False, "error": "Wrong destination address"}), 400
 
-        # Controlla valore (tolleranza 1%)
         tx_value = int(tx_data.get("value", "0x0"), 16)
         if tx_value < avax_wei * 0.99:
-            return jsonify({
-                "ok": False,
-                "error": f"Insufficient amount. Expected ~{avax_price} AVAX"
-            }), 400
+            return jsonify({"ok": False, "error": f"Insufficient amount. Expected ~{avax_price} AVAX"}), 400
 
-        # 3. Log payment
         req_lib.post(
             f"{SUPABASE_URL}/rest/v1/payments",
             headers=HEADERS,
@@ -130,7 +112,6 @@ def verify_payment():
                   "amount_avax": avax_price, "item": item_id, "verified": True}
         )
 
-        # 4. Fetch utente
         user_r = req_lib.get(
             f"{SUPABASE_URL}/rest/v1/users",
             headers=HEADERS,
@@ -140,7 +121,6 @@ def verify_payment():
             return jsonify({"ok": False, "error": "User not found"}), 404
         user_data = user_r.json()[0]
 
-        # 5. Applica item
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         if action == "energy":
             new_energy = min(user_data.get("energy", 0) + value, 100)
@@ -149,7 +129,6 @@ def verify_payment():
                 headers=HEADERS,
                 json={"energy": new_energy, "last_energy_update": now_iso}
             )
-            # Prize pool
             _sync_prize_pool(req_lib, avax_price)
             return jsonify({"ok": True, "item": item_id, "energy": new_energy})
 
@@ -169,12 +148,8 @@ def verify_payment():
         logger.error(f"verify-payment error: {e}", exc_info=True)
         return jsonify({"ok": False, "error": str(e)}), 500
 
-
 def _sync_prize_pool(req_lib, avax_amount: float):
-    r = req_lib.get(
-        f"{SUPABASE_URL}/rest/v1/prize_pool",
-        headers=HEADERS, params={"id": "eq.1"}
-    )
+    r = req_lib.get(f"{SUPABASE_URL}/rest/v1/prize_pool", headers=HEADERS, params={"id": "eq.1"})
     if r.ok and r.json():
         current = float(r.json()[0].get("total_avax", 0))
         req_lib.patch(
@@ -184,21 +159,14 @@ def _sync_prize_pool(req_lib, avax_amount: float):
                   "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
         )
 
-
-def run_flask():
-    port = int(os.environ.get('PORT', 10000))
-    flask_app.run(host='0.0.0.0', port=port, threaded=True)
-
-
 # ═══════════════════════════════════════════════════════════
-#  SUPABASE HELPERS
+#  SUPABASE HELPERS (async)
 # ═══════════════════════════════════════════════════════════
 
 async def db_get(table: str, filters: dict = {}) -> list:
     try:
         async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.get(f"{SUPABASE_URL}/rest/v1/{table}",
-                            headers=HEADERS, params=filters)
+            r = await c.get(f"{SUPABASE_URL}/rest/v1/{table}", headers=HEADERS, params=filters)
         return r.json() if r.status_code == 200 else []
     except Exception as e:
         logger.error(f"db_get: {e}"); return []
@@ -206,8 +174,7 @@ async def db_get(table: str, filters: dict = {}) -> list:
 async def db_insert(table: str, data: dict) -> dict:
     try:
         async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.post(f"{SUPABASE_URL}/rest/v1/{table}",
-                             headers=HEADERS, json=data)
+            r = await c.post(f"{SUPABASE_URL}/rest/v1/{table}", headers=HEADERS, json=data)
         res = r.json()
         return res[0] if isinstance(res, list) and res else data
     except Exception as e:
@@ -216,8 +183,7 @@ async def db_insert(table: str, data: dict) -> dict:
 async def db_update(table: str, filters: dict, data: dict) -> dict:
     try:
         async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.patch(f"{SUPABASE_URL}/rest/v1/{table}",
-                              headers=HEADERS, params=filters, json=data)
+            r = await c.patch(f"{SUPABASE_URL}/rest/v1/{table}", headers=HEADERS, params=filters, json=data)
         res = r.json()
         return res[0] if isinstance(res, list) and res else {}
     except Exception as e:
@@ -233,7 +199,6 @@ async def db_leaderboard(order_by: str, limit: int = 10) -> list:
         return sorted(data, key=lambda x: x.get(order_by, 0), reverse=True)
     except Exception as e:
         logger.error(f"leaderboard: {e}"); return []
-
 
 # ═══════════════════════════════════════════════════════════
 #  USER HELPERS
@@ -261,7 +226,6 @@ async def ensure_user(user, referred_by=None):
         return result or new_user, True
     return existing[0], False
 
-
 def main_keyboard(miniapp_url, user_id):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🎮 PLAY NOW", web_app=WebAppInfo(url=f"{miniapp_url}?uid={user_id}"))],
@@ -272,7 +236,6 @@ def main_keyboard(miniapp_url, user_id):
         [InlineKeyboardButton("💰 Shop",      callback_data="shop"),
          InlineKeyboardButton("🏆 Prize",     callback_data="prize")],
     ])
-
 
 def home_text(data, ref_link, sprint=None):
     streak = data.get("streak", 0)
@@ -289,7 +252,6 @@ def home_text(data, ref_link, sprint=None):
         f"<i>Invite friends → +1,000 coins + 5% passive!</i>"
     )
 
-
 async def get_sprint():
     sp = await db_get("sprints", {"is_active": "eq.true", "order": "started_at.desc", "limit": "1"})
     if not sp: return None
@@ -303,7 +265,6 @@ async def get_sprint():
     except: return None
     return s
 
-
 def remaining(ends_str):
     try:
         e = datetime.datetime.fromisoformat(ends_str.replace("Z", "+00:00"))
@@ -314,9 +275,8 @@ def remaining(ends_str):
         return f"{h}h {m}m"
     except: return "?"
 
-
 # ═══════════════════════════════════════════════════════════
-#  /start
+#  HANDLER TELEGRAM (invariati)
 # ═══════════════════════════════════════════════════════════
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -345,11 +305,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="HTML",
                                     reply_markup=main_keyboard(MINIAPP_URL, user.id))
 
-
-# ═══════════════════════════════════════════════════════════
-#  LEADERBOARD ALL-TIME
-# ═══════════════════════════════════════════════════════════
-
 async def lb_alltime_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -365,11 +320,6 @@ async def lb_alltime_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             [InlineKeyboardButton("🏁 Season LB", callback_data="lb_season")],
             [InlineKeyboardButton("🔙 Back", callback_data="back")]
         ]))
-
-
-# ═══════════════════════════════════════════════════════════
-#  LEADERBOARD SEASON
-# ═══════════════════════════════════════════════════════════
 
 async def lb_season_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -407,11 +357,6 @@ async def lb_season_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             [InlineKeyboardButton("🔙 Back", callback_data="back")]
         ]))
 
-
-# ═══════════════════════════════════════════════════════════
-#  SHOP  (HTML, no markdown issues)
-# ═══════════════════════════════════════════════════════════
-
 async def shop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -445,11 +390,6 @@ async def shop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔙 Back", callback_data="back")]
         ]))
 
-
-# ═══════════════════════════════════════════════════════════
-#  PRIZE
-# ═══════════════════════════════════════════════════════════
-
 async def prize_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -468,11 +408,6 @@ async def prize_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<i>All shop purchases → prize pool.\nCoins accumulate forever → future $ARENA.</i>",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back")]]))
-
-
-# ═══════════════════════════════════════════════════════════
-#  DAILY
-# ═══════════════════════════════════════════════════════════
 
 async def daily_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -527,11 +462,6 @@ async def daily_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back")]]))
 
-
-# ═══════════════════════════════════════════════════════════
-#  SQUAD
-# ═══════════════════════════════════════════════════════════
-
 async def squad_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -563,11 +493,6 @@ async def squad_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔙 Back", callback_data="back")]
         ]))
 
-
-# ═══════════════════════════════════════════════════════════
-#  BACK
-# ═══════════════════════════════════════════════════════════
-
 async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -593,14 +518,8 @@ async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text, parse_mode="HTML",
                                   reply_markup=main_keyboard(MINIAPP_URL, user.id))
 
-
 async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
-
-
-# ═══════════════════════════════════════════════════════════
-#  /pay  (manuale, fallback)
-# ═══════════════════════════════════════════════════════════
 
 async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -668,11 +587,6 @@ async def pay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg + "\n\n<i>Purchase added to prize pool! 🏆</i>",
                                     parse_mode="HTML", reply_markup=main_keyboard(MINIAPP_URL, user.id))
 
-
-# ═══════════════════════════════════════════════════════════
-#  /prizepool
-# ═══════════════════════════════════════════════════════════
-
 async def prizepool_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pool = await db_get("prize_pool", {"id": "eq.1"})
     avax  = float(pool[0].get("total_avax", 0)) if pool else 0.0
@@ -687,11 +601,6 @@ async def prizepool_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔥 4th–10th — share 30%",
         parse_mode="HTML")
 
-
-# ═══════════════════════════════════════════════════════════
-#  ADMIN /newseason  — resetta season_coins E tap_power
-# ═══════════════════════════════════════════════════════════
-
 async def new_season_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("❌ Admin only."); return
@@ -703,13 +612,11 @@ async def new_season_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     pool = await db_get("prize_pool", {"id": "eq.1"})
     pool_avax = float(pool[0].get("total_avax", 0)) if pool else 0.0
 
-    # Chiudi stagione attiva
     await db_update("seasons", {"is_active": "eq.true"}, {
         "is_active": False,
         "ended_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
     })
 
-    # Nuova stagione
     new_s = await db_insert("seasons", {"name": season_name})
 
     medals = ["🥇","🥈","🥉"] + ["🔥"]*7
@@ -725,7 +632,6 @@ async def new_season_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         name = (u.get("username") or u.get("first_name") or "Anon")[:15]
         recap.append(f"{medals[i]} <code>{name}</code> {u.get('season_coins',0):,} → <b>{prize:.3f} AVAX</b>\n")
 
-    # ── Reset season_coins + sprint_coins + tap_power (torna a 1) ──
     try:
         async with httpx.AsyncClient(timeout=20) as c:
             await c.patch(
@@ -737,7 +643,6 @@ async def new_season_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logger.error(f"Season reset error: {e}")
 
-    # Reset prize pool
     await db_update("prize_pool", {"id": "eq.1"}, {
         "total_avax": 0, "total_arena": 0,
         "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -745,11 +650,6 @@ async def new_season_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     recap.append(f"\n🆕 <b>{season_name} begins!</b>\n<i>Season coins + tap power reset. Personal coins KEPT.</i>")
     await update.message.reply_text("".join(recap), parse_mode="HTML")
-
-
-# ═══════════════════════════════════════════════════════════
-#  ADMIN /sprint
-# ═══════════════════════════════════════════════════════════
 
 async def sprint_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
@@ -782,27 +682,61 @@ async def sprint_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⌛ Ends: <code>{ends_at.strftime('%d %b %Y %H:%M UTC')}</code>",
         parse_mode="HTML")
 
-
-# ═══════════════════════════════════════════════════════════
-#  ERROR HANDLER
-# ═══════════════════════════════════════════════════════════
-
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     if isinstance(context.error, (NetworkError, TimedOut)):
         logger.warning(f"Network error (ignored): {context.error}"); return
     logger.error(f"Unhandled: {context.error}", exc_info=context.error)
 
+# ═══════════════════════════════════════════════════════════
+#  WEBHOOK ENDPOINT
+# ═══════════════════════════════════════════════════════════
+
+# La variabile globale per l'Application Telegram
+telegram_app = None
+
+@flask_app.route('/telegram', methods=['POST'])
+async def telegram_webhook():
+    """Riceve gli update da Telegram."""
+    if not WEBHOOK_SECRET:
+        logger.warning("WEBHOOK_SECRET not set. Accepting any request.")
+    elif request.headers.get('X-Telegram-Bot-Api-Secret-Token') != WEBHOOK_SECRET:
+        return 'Unauthorized', 401
+
+    if telegram_app is None:
+        return 'Bot not ready', 503
+
+    try:
+        update = Update.de_json(request.get_json(force=True), telegram_app.bot)
+        await telegram_app.process_update(update)
+        return 'OK', 200
+    except Exception as e:
+        logger.error(f"Webhook error: {e}", exc_info=True)
+        return 'Error', 500
+
+async def set_webhook(app):
+    """Imposta il webhook su Telegram."""
+    webhook_url = f"{WEBHOOK_URL}/telegram"
+    await app.bot.set_webhook(url=webhook_url, secret_token=WEBHOOK_SECRET, drop_pending_updates=True)
+    logger.info(f"Webhook set to {webhook_url}")
 
 # ═══════════════════════════════════════════════════════════
 #  MAIN
 # ═══════════════════════════════════════════════════════════
 
+def run_flask():
+    port = int(os.environ.get('PORT', 10000))
+    flask_app.run(host='0.0.0.0', port=port, threaded=True)
+
 def main():
-    # Flask in thread separato
+    global telegram_app
+
+    # Avvia Flask in thread separato
     t = threading.Thread(target=run_flask, daemon=True)
     t.start()
 
+    # Crea Application Telegram
     app = Application.builder().token(BOT_TOKEN).build()
+    telegram_app = app  # per l'endpoint webhook
 
     app.add_handler(CommandHandler("start",     start))
     app.add_handler(CommandHandler("pay",       pay_command))
@@ -820,9 +754,25 @@ def main():
     app.add_handler(CallbackQueryHandler(noop_callback,       pattern="^noop$"))
     app.add_error_handler(error_handler)
 
-    print("🔥 Arena Bot v3.0 — running on Render!")
-    app.run_polling(drop_pending_updates=True)
-
+    # Inizializza e avvia il bot (sostituisce run_polling)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(app.initialize())
+        loop.run_until_complete(app.start())
+        if WEBHOOK_URL:
+            loop.run_until_complete(set_webhook(app))
+            print(f"🔥 Arena Bot v3.1 — Webhook active at {WEBHOOK_URL}/telegram")
+        else:
+            print("⚠️ WEBHOOK_URL not set, falling back to polling (not recommended).")
+            loop.run_until_complete(app.updater.start_polling(drop_pending_updates=True))
+        # Mantiene il processo vivo
+        loop.run_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        loop.run_until_complete(app.stop())
+        loop.close()
 
 if __name__ == "__main__":
     main()
