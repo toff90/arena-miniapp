@@ -1,8 +1,7 @@
 """
-🔥 Arena Bot v4.1 — Polling Stabile (tutte le funzionalità)
-- Polling in thread separato, nessun webhook
-- Flask solo per health check e API pagamenti
-- Compatibile con Gunicorn su Render (workers=1)
+🔥 Arena Bot v5.0 — Flask + Polling (No Gunicorn)
+- Avvia Flask nel thread principale (per Render)
+- Bot in thread separato con polling manuale (nessun signal handler)
 - TUTTI gli handler originali inclusi
 """
 
@@ -51,7 +50,7 @@ SHOP_ITEMS = {
 STREAK_BONUS = {1:250, 2:250, 3:250, 4:250, 5:250, 6:250, 7:1000}
 PRIZE_DIST   = [0.40, 0.20, 0.10, 0.05, 0.05, 0.05, 0.05, 0.03, 0.03, 0.04]
 
-# ─── Flask App (solo API e health) ────────────────────────
+# ─── Flask App ─────────────────────────────────────────────
 flask_app = Flask(__name__)
 CORS(flask_app, origins=["https://arena.social", "https://toff90.github.io"], supports_credentials=True)
 
@@ -253,7 +252,7 @@ def remaining(ends_str):
         return f"{h}h {m}m"
     except: return "?"
 
-# ─── Telegram Handlers (TUTTI INCLUSI) ─────────────────────
+# ─── Telegram Handlers ─────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     ref = None
@@ -661,8 +660,11 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
         logger.warning(f"Network error (ignored): {context.error}"); return
     logger.error(f"Unhandled: {context.error}", exc_info=context.error)
 
-# ─── Avvio del bot in un thread separato ──────────────────
+# ─── Avvio del bot in un thread separato (senza signal handler) ───
 def run_bot():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start",     start))
@@ -681,8 +683,17 @@ def run_bot():
     app.add_handler(CallbackQueryHandler(noop_callback,       pattern="^noop$"))
     app.add_error_handler(error_handler)
 
-    logger.info("Bot started. Polling...")
-    app.run_polling(drop_pending_updates=True)
+    try:
+        loop.run_until_complete(app.initialize())
+        loop.run_until_complete(app.start())
+        loop.run_until_complete(app.updater.start_polling(drop_pending_updates=True))
+        loop.run_forever()
+    except Exception as e:
+        logger.error(f"Bot thread error: {e}", exc_info=True)
 
-# Avvia il bot in un thread separato quando il modulo viene importato
 threading.Thread(target=run_bot, daemon=True).start()
+
+# ─── Avvio Flask nel thread principale ───────────────────
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    flask_app.run(host="0.0.0.0", port=port)
