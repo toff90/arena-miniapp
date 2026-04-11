@@ -766,3 +766,19 @@ if __name__ == "__main__":
     debug = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
     logger.info(f"🔥 Arena API v2.0 starting on port {port}")
     app.run(host="0.0.0.0", port=port, debug=debug)
+# ─── Frontend Serving (Aggiunta) ───────────────────────────────────────────────
+from flask import send_from_directory
+import os
+
+@app.route('/')
+def serve_frontend():
+    """Serve l'interfaccia utente web3 alla root."""
+    return send_from_directory('.', 'index.html')
+
+@app.route('/<path:filename>')
+def serve_static_files(filename):
+    """Serve asset statici, garantendo che le API continuino a funzionare."""
+    if os.path.exists(filename):
+        return send_from_directory('.', filename)
+    # Lasciamo che le rotte API fallite vengano catturate dall'error handler 404
+    return jsonify({"ok": False, "error": "Endpoint or file not found"}), 404
