@@ -782,3 +782,16 @@ def serve_static_files(filename):
         return send_from_directory('.', filename)
     # Lasciamo che le rotte API fallite vengano catturate dall'error handler 404
     return jsonify({"ok": False, "error": "Endpoint or file not found"}), 404
+# ─── Path Resolution Override (Aggiunta per fix CWD) ───────────────────────────
+@app.before_request
+def force_serve_frontend():
+    # Escludiamo esplicitamente le rotte di backend e webhook
+    if not request.path.startswith(('/api', '/health', '/telegram')):
+        target_file = 'index.html' if request.path == '/' else request.path.lstrip('/')
+        # Calcoliamo il percorso assoluto in modo dinamico e sicuro
+        absolute_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(absolute_dir, target_file)
+        
+        if os.path.exists(file_path):
+            return send_from_directory(absolute_dir, target_file)
+        
