@@ -300,7 +300,6 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
   const TREASURY    = window.TREASURY_ADDR || ''
   const BACKEND_URL = window.BACKEND_URL || ''
 
-  // --- Reown AppKit (per uso standalone) ---
   const ethersAdapter = new EthersAdapter()
   const reownModal = createAppKit({
     adapters: [ethersAdapter],
@@ -316,7 +315,6 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
     features: { analytics: false, email: false, socials: false }
   })
 
-  // --- Arena SDK (per l'ambiente Arena) ---
   const arenaSdk = new ArenaAppStoreSdk({
     projectId: PROJECT_ID,
     metadata: {
@@ -327,7 +325,6 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
     }
   })
 
-  // Esponi globalmente
   window._reownModal = reownModal
   window._arenaSdk = arenaSdk
   window._ethers = ethers
@@ -336,55 +333,62 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
   // Ascolta cambiamenti wallet da Reown
   reownModal.subscribeAccount(account => {
     window._walletAddress = account?.address || null
-    updateWalletUI()
+    if (typeof window.updateWalletUI === 'function') {
+      window.updateWalletUI()
+    }
   })
 
   // Ascolta cambiamenti wallet da Arena
   if (arenaSdk) {
     arenaSdk.on('walletChanged', ({ address }) => {
       window._walletAddress = address || null
-      updateWalletUI()
+      if (typeof window.updateWalletUI === 'function') {
+        window.updateWalletUI()
+      }
     })
   }
 
   // Funzione toggle unificata
   window.toggleWallet = async () => {
     if (window._walletAddress) {
-      // Disconnessione
-      if (window._arenaSdk && window._arenaSdk.provider) {
-        // Arena non ha un disconnect esplicito, resettiamo solo lo stato
-      }
       if (window._reownModal) {
         await window._reownModal.disconnect()
       }
       window._walletAddress = null
-      updateWalletUI()
-      showToast('Wallet disconnected', 'warn')
+      if (typeof window.updateWalletUI === 'function') {
+        window.updateWalletUI()
+      }
+      if (typeof window.showToast === 'function') {
+        window.showToast('Wallet disconnected', 'warn')
+      }
     } else {
       try {
         let address = null
-        // Prova prima con Arena SDK (se siamo in Arena)
         if (window._arenaSdk && window._arenaSdk.provider) {
           const accounts = await window._arenaSdk.provider.request({ method: 'eth_requestAccounts' })
           address = accounts[0]
-        } 
-        // Altrimenti usa Reown
-        else if (window._reownModal) {
+        } else if (window._reownModal) {
           await window._reownModal.open()
-          const account = window._reownModal.getAccount()
-          address = account?.address
+          // L'account verrà impostato via subscribeAccount, non serve getAccount() immediato
         }
-        
         if (address) {
           window._walletAddress = address
-          updateWalletUI()
-          showToast('Wallet connected!', 'success')
+          if (typeof window.updateWalletUI === 'function') {
+            window.updateWalletUI()
+          }
+          if (typeof window.showToast === 'function') {
+            window.showToast('Wallet connected!', 'success')
+          }
         }
       } catch (err) {
         if (err.code === 4001 || err.code === 'ACTION_REJECTED') {
-          showToast('Connection cancelled', 'warn')
+          if (typeof window.showToast === 'function') {
+            window.showToast('Connection cancelled', 'warn')
+          }
         } else {
-          showToast('Connection failed', 'error')
+          if (typeof window.showToast === 'function') {
+            window.showToast('Connection failed', 'error')
+          }
         }
       }
     }
@@ -393,17 +397,20 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
   // Invio transazione AVAX
   window.sendAvaxPayment = async (amountAvax) => {
     if (!window._walletAddress) {
-      showToast('Connect your wallet first!', 'error')
+      if (typeof window.showToast === 'function') {
+        window.showToast('Connect your wallet first!', 'error')
+      }
       return null
     }
     if (!TREASURY || TREASURY === '0xTUO_WALLET_AVAX') {
-      showToast('Treasury not configured', 'error')
+      if (typeof window.showToast === 'function') {
+        window.showToast('Treasury not configured', 'error')
+      }
       return null
     }
 
     try {
       let txHash
-      // Se siamo in Arena, usa il provider dell'SDK
       if (window._arenaSdk && window._arenaSdk.provider) {
         const wei = ethers.parseEther(amountAvax.toString())
         txHash = await window._arenaSdk.provider.request({
@@ -414,9 +421,7 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
             value: wei.toString(16)
           }]
         })
-      } 
-      // Altrimenti usa ethers con window.ethereum
-      else {
+      } else {
         const provider = new ethers.BrowserProvider(window.ethereum)
         const signer = await provider.getSigner()
         const wei = ethers.parseEther(amountAvax.toString())
@@ -429,9 +434,13 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
       return txHash
     } catch (err) {
       if (err.code === 4001 || err.code === 'ACTION_REJECTED') {
-        showToast('Transaction cancelled', 'warn')
+        if (typeof window.showToast === 'function') {
+          window.showToast('Transaction cancelled', 'warn')
+        }
       } else {
-        showToast('Transaction failed: ' + (err.shortMessage || err.message), 'error')
+        if (typeof window.showToast === 'function') {
+          window.showToast('Transaction failed: ' + (err.shortMessage || err.message), 'error')
+        }
       }
       return null
     }
@@ -440,7 +449,7 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
 
 <script>
 // ════════════════════════════════════════════
-//  CONFIG E LOGICA DI GIOCO (INVARIATA)
+//  CONFIG E LOGICA DI GIOCO
 // ════════════════════════════════════════════
 const SUPABASE_URL  = 'https://vwgxfxthammtghqjhhzs.supabase.co'
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ3Z3hmeHRoYW1tdGdocWpoaHpzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3MDQ2OTEsImV4cCI6MjA5MTI4MDY5MX0.j3crSl25rS_yJa-68uBOEb0evzMHPs61wJl1YQsYJGs'
@@ -467,13 +476,11 @@ let state = {
 }
 let syncTimer = null, regenInterval = null
 
-// ════ TELEGRAM ════
 const tg = window.Telegram.WebApp
 tg.ready(); tg.expand(); tg.enableClosingConfirmation()
 const params = new URLSearchParams(window.location.search)
 state.userId = params.get('uid') || tg.initDataUnsafe?.user?.id
 
-// ════ SUPABASE ════
 async function sbGet(table, filters = {}) {
   try {
     const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`)
@@ -497,7 +504,6 @@ async function sbRpc(fn, body) {
   } catch { return false }
 }
 
-// ════ ENERGY ════
 function calcEnergy(saved, lastISO) {
   if (!lastISO) return saved ?? MAX_ENERGY
   const elapsed = (Date.now() - new Date(lastISO).getTime()) / 60000
@@ -517,7 +523,6 @@ function startRegenTimer() {
   }, 5000)
 }
 
-// ════ LOAD USER ════
 async function loadUser() {
   if (!state.userId) { showToast('Open from Telegram bot!', 'error'); return }
   const data = await sbGet('users', {
@@ -562,7 +567,6 @@ async function loadPrizePool() {
   ;['ppArena','ppArena2'].forEach(id => document.getElementById(id).textContent = ar)
 }
 
-// ════ WALLET UI ════
 window._walletAddress = null
 function updateWalletUI() {
   const addr = window._walletAddress
@@ -585,8 +589,8 @@ function updateWalletUI() {
     badge.style.color = 'var(--text-dim)'
   }
 }
+window.updateWalletUI = updateWalletUI  // Esponi per il modulo
 
-// ════ BUY ITEM ════
 async function buyItem(itemId, amountAvax) {
   if (!window._walletAddress) {
     showToast('Connect your wallet first!', 'warn')
@@ -654,7 +658,6 @@ function updateUpgradeBtns() {
   })
 }
 
-// ════ COMBO ════
 function updateCombo() {
   const now = Date.now(), delta = now - state.lastTapTime
   state.combo = delta < state.COMBO_WIN ? Math.min(state.combo+1, state.MAX_COMBO) : 1
@@ -670,7 +673,6 @@ function updateCombo() {
   state.comboTimer = setTimeout(() => { state.combo=1; document.getElementById('comboBadge').classList.remove('show') }, state.COMBO_WIN+50)
 }
 
-// ════ TAP ════
 let lastTouchTime = 0
 function handleTap(e) {
   const now = Date.now()
@@ -711,7 +713,6 @@ async function syncToDb() {
   state.syncing = false
 }
 
-// ════ DAILY ════
 async function openDaily() {
   openModal('dailyModal'); renderStreak()
   const btn = document.getElementById('claimBtn')
@@ -755,18 +756,15 @@ async function claimDaily() {
   showToast(`+${reward.toLocaleString()} coins! 🔥 Streak ${newStreak}/7`, 'success')
 }
 
-// ════ SHOP / PRIZE ════
 function openShop() { updateUpgradeBtns(); openModal('shopModal'); loadPrizePool() }
 function openPrize() { openModal('prizeModal'); loadPrizePool() }
 
-// ════ MODALS ════
 function openModal(id) { document.getElementById(id).classList.add('show') }
 function closeModal(id) { document.getElementById(id).classList.remove('show') }
 document.querySelectorAll('.modal-overlay').forEach(el => {
   el.addEventListener('click', e => { if (e.target === el) el.classList.remove('show') })
 })
 
-// ════ UI ════
 function updateUI() {
   document.getElementById('coinsDisplay').textContent = state.coins.toLocaleString('en-US')
   document.getElementById('powerDisplay').textContent = `x${state.tapPower}`
@@ -788,7 +786,6 @@ function bumpCoins() {
   setTimeout(() => el.classList.remove('bump'), 80)
 }
 
-// ════ AUDIO ════
 let audioCtx = null
 function audio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)()
@@ -807,7 +804,6 @@ function playClaim() {
   try { const c=audio(); [400,500,630,800].forEach((f,i) => { const t=c.currentTime+i*0.09,o=c.createOscillator(),g=c.createGain(); o.connect(g);g.connect(c.destination); o.frequency.setValueAtTime(f,t); g.gain.setValueAtTime(0.15,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.18); o.type='sine'; o.start(t); o.stop(t+0.22); }); } catch(e) {}
 }
 
-// ════ FX ════
 const FX = ['#FFD700','#D4AF37','#FF2020','#FF8C00','#FFF0A0','#FF4500']
 function spawnParticles(e) {
   const count = Math.min(6+state.combo*2,18)
@@ -838,19 +834,17 @@ function flash() {
   document.body.appendChild(el); setTimeout(() => el.remove(), 150)
 }
 
-// ════ TOAST ════
 let toastTimer = null
 function showToast(msg, type='') {
   const t = document.getElementById('toast'); t.textContent = msg
   t.className = 'toast show' + (type ? ` ${type}` : '')
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3000)
 }
+window.showToast = showToast  // Esponi per il modulo
 
-// ════ CLEANUP ════
 window.addEventListener('pagehide', syncToDb)
 document.addEventListener('visibilitychange', () => { if (document.hidden) syncToDb() })
 
-// ════ START ════
 loadUser()
 </script>
 </body>
