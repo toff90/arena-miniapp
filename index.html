@@ -7,6 +7,18 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Arena Coins ⚔️</title>
 
+  <script>
+  window.onerror = function(msg, url, line) {
+    alert("ERRORE CRITICO: " + msg + "\nLinea: " + line);
+  };
+  // Se dopo 5 secondi è ancora in loading, avvisami
+  setTimeout(() => {
+    if (document.getElementById('loading-screen')?.style.display !== 'none') {
+      alert("Il caricamento è bloccato. Controlla il Project ID o la connessione API.");
+    }
+  }, 5000);
+</script>
+
 <!-- Buffer polyfill - must be FIRST before any module -->
 <script>
   window.process = window.process || { env: {}, browser: true };
