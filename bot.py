@@ -705,6 +705,14 @@ async def set_webhook(app):
 # ─── Inizializzazione bot (a livello di modulo) ─────────
 def init_bot():
     global telegram_app
+    
+    # Iniezione di una property per aggirare il limite degli __slots__ 
+    # e permettere il salvataggio del loop
+    Application.bg_loop = property(
+        lambda self: getattr(self.__class__, '_shared_bg_loop', None),
+        lambda self, val: setattr(self.__class__, '_shared_bg_loop', val)
+    )
+
     app = Application.builder().token(BOT_TOKEN).build()
     telegram_app = app
 
