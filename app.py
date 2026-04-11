@@ -766,3 +766,47 @@ if __name__ == "__main__":
     debug = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
     logger.info(f"🔥 Arena API v2.0 starting on port {port}")
     app.run(host="0.0.0.0", port=port, debug=debug)
+
+# ─── Bulletproof HTML Server (Aggiunta diagnostica e risolutiva) ──────────────
+from flask import make_response
+
+@app.before_request
+def bulletproof_serve_index():
+    # Interviene solo per la home (/)
+    if request.path == '/':
+        import os
+        
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        
+        # 3 tentativi di percorsi assoluti, includendo quello di default di Render
+        possible_paths = [
+            os.path.join(base_dir, 'index.html'),
+            os.path.join(os.getcwd(), 'index.html'),
+            '/opt/render/project/src/index.html'
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                try:
+                    # Leggiamo brutalmente il file come stringa di testo e lo serviamo
+                    with open(path, 'r', encoding='utf-8') as f:
+                        html_content = f.read()
+                    response = make_response(html_content)
+                    response.headers['Content-Type'] = 'text/html'
+                    return response
+                except Exception as e:
+                    logger.error(f"Errore nella lettura di {path}: {e}")
+        
+        # Se il codice arriva qui, index.html è letteralmente assente!
+        # Stampiamo i file presenti nella cartella per capire cosa ha clonato Render.
+        try:
+            available_files = os.listdir(base_dir)
+        except Exception:
+            available_files = ["Errore di lettura cartella"]
+            
+        return jsonify({
+            "ok": False, 
+            "error": "CRITICAL: index.html non trovato sul disco del server!",
+            "paths_checked": possible_paths,
+            "files_in_directory": available_files
+        }), 404
