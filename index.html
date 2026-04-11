@@ -330,37 +330,24 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
   window._ethers = ethers
   window._walletAddress = null
 
-  // Ascolta cambiamenti wallet da Reown
   reownModal.subscribeAccount(account => {
     window._walletAddress = account?.address || null
-    if (typeof window.updateWalletUI === 'function') {
-      window.updateWalletUI()
-    }
+    if (typeof window.updateWalletUI === 'function') window.updateWalletUI()
   })
 
-  // Ascolta cambiamenti wallet da Arena
   if (arenaSdk) {
     arenaSdk.on('walletChanged', ({ address }) => {
       window._walletAddress = address || null
-      if (typeof window.updateWalletUI === 'function') {
-        window.updateWalletUI()
-      }
+      if (typeof window.updateWalletUI === 'function') window.updateWalletUI()
     })
   }
 
-  // Funzione toggle unificata
   window.toggleWallet = async () => {
     if (window._walletAddress) {
-      if (window._reownModal) {
-        await window._reownModal.disconnect()
-      }
+      if (window._reownModal) await window._reownModal.disconnect()
       window._walletAddress = null
-      if (typeof window.updateWalletUI === 'function') {
-        window.updateWalletUI()
-      }
-      if (typeof window.showToast === 'function') {
-        window.showToast('Wallet disconnected', 'warn')
-      }
+      if (typeof window.updateWalletUI === 'function') window.updateWalletUI()
+      if (typeof window.showToast === 'function') window.showToast('Wallet disconnected', 'warn')
     } else {
       try {
         let address = null
@@ -369,43 +356,29 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
           address = accounts[0]
         } else if (window._reownModal) {
           await window._reownModal.open()
-          // L'account verrà impostato via subscribeAccount, non serve getAccount() immediato
         }
         if (address) {
           window._walletAddress = address
-          if (typeof window.updateWalletUI === 'function') {
-            window.updateWalletUI()
-          }
-          if (typeof window.showToast === 'function') {
-            window.showToast('Wallet connected!', 'success')
-          }
+          if (typeof window.updateWalletUI === 'function') window.updateWalletUI()
+          if (typeof window.showToast === 'function') window.showToast('Wallet connected!', 'success')
         }
       } catch (err) {
         if (err.code === 4001 || err.code === 'ACTION_REJECTED') {
-          if (typeof window.showToast === 'function') {
-            window.showToast('Connection cancelled', 'warn')
-          }
+          if (typeof window.showToast === 'function') window.showToast('Connection cancelled', 'warn')
         } else {
-          if (typeof window.showToast === 'function') {
-            window.showToast('Connection failed', 'error')
-          }
+          if (typeof window.showToast === 'function') window.showToast('Connection failed', 'error')
         }
       }
     }
   }
 
-  // Invio transazione AVAX
   window.sendAvaxPayment = async (amountAvax) => {
     if (!window._walletAddress) {
-      if (typeof window.showToast === 'function') {
-        window.showToast('Connect your wallet first!', 'error')
-      }
+      if (typeof window.showToast === 'function') window.showToast('Connect your wallet first!', 'error')
       return null
     }
     if (!TREASURY || TREASURY === '0xTUO_WALLET_AVAX') {
-      if (typeof window.showToast === 'function') {
-        window.showToast('Treasury not configured', 'error')
-      }
+      if (typeof window.showToast === 'function') window.showToast('Treasury not configured', 'error')
       return null
     }
 
@@ -425,22 +398,15 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
         const provider = new ethers.BrowserProvider(window.ethereum)
         const signer = await provider.getSigner()
         const wei = ethers.parseEther(amountAvax.toString())
-        const tx = await signer.sendTransaction({
-          to: TREASURY,
-          value: wei,
-        })
+        const tx = await signer.sendTransaction({ to: TREASURY, value: wei })
         txHash = tx.hash
       }
       return txHash
     } catch (err) {
       if (err.code === 4001 || err.code === 'ACTION_REJECTED') {
-        if (typeof window.showToast === 'function') {
-          window.showToast('Transaction cancelled', 'warn')
-        }
+        if (typeof window.showToast === 'function') window.showToast('Transaction cancelled', 'warn')
       } else {
-        if (typeof window.showToast === 'function') {
-          window.showToast('Transaction failed: ' + (err.shortMessage || err.message), 'error')
-        }
+        if (typeof window.showToast === 'function') window.showToast('Transaction failed: ' + (err.shortMessage || err.message), 'error')
       }
       return null
     }
@@ -589,7 +555,7 @@ function updateWalletUI() {
     badge.style.color = 'var(--text-dim)'
   }
 }
-window.updateWalletUI = updateWalletUI  // Esponi per il modulo
+window.updateWalletUI = updateWalletUI
 
 async function buyItem(itemId, amountAvax) {
   if (!window._walletAddress) {
@@ -840,7 +806,7 @@ function showToast(msg, type='') {
   t.className = 'toast show' + (type ? ` ${type}` : '')
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3000)
 }
-window.showToast = showToast  // Esponi per il modulo
+window.showToast = showToast
 
 window.addEventListener('pagehide', syncToDb)
 document.addEventListener('visibilitychange', () => { if (document.hidden) syncToDb() })
