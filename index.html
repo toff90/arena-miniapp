@@ -7,6 +7,22 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Arena Coins</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<!-- POLYFILL per Reown (Buffer e process) -->
+<script>
+  // Process polyfill
+  window.process = window.process || { env: {}, browser: true };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/buffer@6.0.3/index.min.js"></script>
+<script>
+  // Assicura che Buffer sia globale
+  if (typeof Buffer !== 'undefined' && typeof window.Buffer === 'undefined') {
+    window.Buffer = Buffer;
+  }
+  // Polyfill per globalThis (se serve)
+  if (typeof globalThis === 'undefined') {
+    (function() { this.globalThis = this; })();
+  }
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 :root{--gold:#D4AF37;--gold-bright:#FFD700;--gold-dark:#8B6914;--crimson:#8B0000;--crimson-hot:#FF2020;--bg:#080608;--surface:rgba(212,175,55,0.06);--border:rgba(212,175,55,0.18);--text:#E8D5A3;--text-dim:#6B5A3A;--safe-bottom:env(safe-area-inset-bottom,0px);}
