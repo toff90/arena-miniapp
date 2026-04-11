@@ -1454,3 +1454,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
 </body>
 </html>
+<div id="debug-overlay" style="position: fixed; bottom: 0; left: 0; width: 100%; background: rgba(0,0,0,0.85); color: #FF2020; z-index: 99999; font-family: monospace; font-size: 11px; padding: 5px; box-sizing: border-box; max-height: 30vh; overflow-y: auto; pointer-events: none;"></div>
+<script>
+  window.addEventListener('error', function(event) {
+    const debugDiv = document.getElementById('debug-overlay');
+    debugDiv.innerHTML += '<div>❌ ' + event.message + ' (Riga: ' + event.lineno + ')</div>';
+  });
+  window.addEventListener('unhandledrejection', function(event) {
+    const debugDiv = document.getElementById('debug-overlay');
+    debugDiv.innerHTML += '<div>⚠️ Promise Rejection: ' + (event.reason.message || event.reason) + '</div>';
+  });
+</script>
+
