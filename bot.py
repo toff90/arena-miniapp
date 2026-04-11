@@ -1,7 +1,7 @@
 """
-🔥 Arena Bot v5.0 — Flask + Polling (No Gunicorn)
-- Avvia Flask nel thread principale (per Render)
-- Bot in thread separato con polling manuale (nessun signal handler)
+🔥 Arena Bot v6.1 — Single Process, No Conflict
+- Bot in main thread (polling)
+- Flask in daemon thread (health + payment API)
 - TUTTI gli handler originali inclusi
 """
 
@@ -252,7 +252,7 @@ def remaining(ends_str):
         return f"{h}h {m}m"
     except: return "?"
 
-# ─── Telegram Handlers ─────────────────────────────────────
+# ─── Telegram Handlers (TUTTI INCLUSI) ─────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     ref = None
@@ -660,11 +660,16 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
         logger.warning(f"Network error (ignored): {context.error}"); return
     logger.error(f"Unhandled: {context.error}", exc_info=context.error)
 
-# ─── Avvio del bot in un thread separato (senza signal handler) ───
-def run_bot():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+# ─── Avvio dell'applicazione ──────────────────────────────
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    flask_app.run(host="0.0.0.0", port=port, threaded=True)
 
+if __name__ == "__main__":
+    # Avvia Flask in un thread separato
+    threading.Thread(target=run_flask, daemon=True).start()
+
+    # Avvia il bot Telegram nel thread principale
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start",     start))
@@ -683,17 +688,5 @@ def run_bot():
     app.add_handler(CallbackQueryHandler(noop_callback,       pattern="^noop$"))
     app.add_error_handler(error_handler)
 
-    try:
-        loop.run_until_complete(app.initialize())
-        loop.run_until_complete(app.start())
-        loop.run_until_complete(app.updater.start_polling(drop_pending_updates=True))
-        loop.run_forever()
-    except Exception as e:
-        logger.error(f"Bot thread error: {e}", exc_info=True)
-
-threading.Thread(target=run_bot, daemon=True).start()
-
-# ─── Avvio Flask nel thread principale ───────────────────
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    flask_app.run(host="0.0.0.0", port=port)
+    logger.info("Bot started. Polling...")
+    app.run_polling(drop_pending_updates=True)
