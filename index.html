@@ -7,23 +7,6 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Arena Coins ⚔️</title>
 
-<!--
-  ════════════════════════════════════════════════════════════
-  WHY appkit-cdn?
-  ─────────────────────────────────────────────────────────
-  • @reown/appkit + EthersAdapter + ethers imported as ES
-    modules from jsdelivr FAIL on mobile with:
-      – 404 on sub-paths (/dist/networks/index.js)
-      – "require is not defined" (Node.js CJS in browser)
-      – CORS errors on some carriers
-
-  • @reown/appkit-cdn is the OFFICIAL pre-bundled browser
-    build: one script tag, everything included, no imports.
-    Works on any mobile browser, no polyfills needed.
-  ════════════════════════════════════════════════════════════
--->
-
-<!-- Wallet readiness promise — must exist BEFORE appkit loads -->
 <script>
   let _wRes;
   window._walletReady = new Promise(res => { _wRes = res; });
@@ -41,7 +24,6 @@
   };
 </script>
 
-<!-- AppKit: dynamic loader with fallback versions -->
 <script>
 (function loadAppKit() {
   const VERSIONS = ['1.1.3', '1.1.2', '1.1.1', '1.1.0', '1.0.9'];
@@ -70,11 +52,9 @@
 })();
 </script>
 
-<!-- Arena App Store SDK (optional, only inside arena.social) -->
 <script src="https://cdn.jsdelivr.net/npm/@the-arena/arena-app-store-sdk@0.2.4/dist/index.umd.js"
         onerror="console.warn('[Arena SDK] not available')"></script>
 
-<!-- Wallet init — waits for AppKit CDN via polling -->
 <script>
 (function waitForAppKitAndInit() {
   const PROJECT_ID = '8166c5ca3b14d2b405ba21c23f548565';
@@ -166,38 +146,51 @@
       const wallet = window._walletAddress, treasury = window._TREASURY;
       if (!wallet) throw new Error('No wallet connected');
       if (!treasury) throw new Error('Treasury not configured');
-      const weiHex = '0x' + BigInt(Math.round(amountAvax * 1e18)).toString(16);
-      const txParams = [{ from: wallet, to: treasury, value: weiHex, chainId: AVAX_CHAIN_ID }];
+      
+      // Calcolo sicuro e standardizzato in Wei (evita problemi di precisione con JS)
+      const weiHex = '0x' + (BigInt(Math.round(amountAvax * 10000)) * 100000000000000n).toString(16);
+      
+      // I wallet mobile (es. Trust Wallet) falliscono se 'chainId' viene passato nei parametri della transazione.
+      // Il chainId è gestito a livello di rete dal provider.
+      const txParams = [{ from: wallet, to: treasury, value: weiHex }];
+
+      const handleWalletError = (e) => {
+        let errorMsg = "Transaction failed or unknown error.";
+        if (typeof e === 'string') errorMsg = e;
+        else if (e.message) errorMsg = e.message;
+        else if (e.error && e.error.message) errorMsg = e.error.message;
+
+        if (errorMsg.toLowerCase().includes('reject') || errorMsg.includes('4001') || errorMsg.toLowerCase().includes('denied')) {
+          throw new Error('Transaction cancelled by user');
+        }
+        throw new Error('Transaction failed: ' + errorMsg);
+      };
 
       // Arena SDK
       if (arenaSdk && arenaSdk.provider) {
         try {
           await switchToAvalanche(arenaSdk.provider);
           return await arenaSdk.provider.request({ method: 'eth_sendTransaction', params: txParams });
-        } catch(e) {
-          if (e.code === 4001 || String(e.message).includes('reject') || String(e.message).includes('denied')) throw new Error('Transaction cancelled');
-          console.warn('[Arena] tx failed:', e.message);
-        }
+        } catch(e) { handleWalletError(e); }
       }
-      // Injected wallet (Trust Wallet, MetaMask, Core...)
+      // Injected wallet (Trust Wallet in-app, MetaMask, Core...)
       if (window.ethereum) {
         try {
           await switchToAvalanche(window.ethereum);
           return await window.ethereum.request({ method: 'eth_sendTransaction', params: txParams });
-        } catch(e) {
-          if (e.code === 4001 || String(e.message).includes('reject') || String(e.message).includes('denied')) throw new Error('Transaction cancelled by user');
-          throw new Error('Transaction failed: ' + (e.message || 'unknown error'));
-        }
+        } catch(e) { handleWalletError(e); }
       }
-      // AppKit modal provider
+      // AppKit modal provider (WalletConnect mobile link)
       if (modal && modal.getWalletProvider) {
         const prov = await modal.getWalletProvider();
         if (prov) {
-          await switchToAvalanche(prov);
-          return await prov.request({ method: 'eth_sendTransaction', params: txParams });
+          try {
+            await switchToAvalanche(prov);
+            return await prov.request({ method: 'eth_sendTransaction', params: txParams });
+          } catch(e) { handleWalletError(e); }
         }
       }
-      throw new Error('No wallet provider available. Open in Trust Wallet browser.');
+      throw new Error('No wallet provider available. Open in Web3 browser.');
     };
 
     // ── disconnectWallet ──────────────────────────────────────
@@ -438,7 +431,6 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
     <button class="action-btn" onclick="openSquad()">👥 Squad</button>
     <button class="action-btn" onclick="openPrize()">💎 Prize</button>
   </div>
-  <!-- Referral quick bar -->
   <div class="ref-bar" id="refBar" onclick="quickCopyReferral()" style="display:none">
     <span class="ref-bar-left">👥 <span id="refCount">0</span> fighters in your squad · +1,000 coins per invite</span>
     <span class="ref-bar-right">📤 INVITE</span>
@@ -452,7 +444,6 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
 </div>
 <div id="toast"></div>
 
-<!-- Modals -->
 <div class="modal-overlay" id="lbModal">
   <div class="modal">
     <button class="modal-close" onclick="closeModal('lbModal')">✕</button>
@@ -525,9 +516,6 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
   </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════
-  GAME SCRIPT — pure sync, no module, always works
-════════════════════════════════════════════════════════════ -->
 <script>
 // ── Config ──────────────────────────────────────────────────
 const BACKEND_URL = 'https://arena-tap.onrender.com'; // ← your Render URL
@@ -801,7 +789,6 @@ async function openSquad() {
     document.getElementById('refCount').textContent = r.member_count || 0;
 
     el.innerHTML=`
-      <!-- Stats row -->
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;margin-bottom:1rem">
         <div style="text-align:center;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:0.6rem">
           <div style="font-family:'Cinzel Decorative',serif;font-size:1.1rem;color:var(--gold-bright)">${r.member_count}</div>
@@ -817,18 +804,15 @@ async function openSquad() {
         </div>
       </div>
 
-      <!-- How it works -->
       <div style="background:rgba(212,175,55,0.06);border:1px solid rgba(212,175,55,0.15);border-radius:10px;padding:0.8rem;margin-bottom:1rem;font-size:0.75rem;color:var(--text-dim);line-height:1.6">
         ⚔️ Each fighter you recruit gives you <strong style="color:var(--gold)">+1,000 coins</strong> instantly.<br>
         📈 You earn <strong style="color:var(--gold)">5% passive</strong> on every daily reward they claim — forever.
       </div>
 
-      <!-- Invite link -->
       <div class="section-title">Your Invite Link</div>
       <div style="font-size:0.65rem;color:var(--text-dim);word-break:break-all;padding:0.6rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;margin-bottom:0.5rem" onclick="copyLink('${link}')">🔗 ${link}</div>
       <button onclick="copyLink('${link}')" style="width:100%;padding:0.8rem;background:linear-gradient(135deg,var(--gold-dark),var(--gold));border:none;border-radius:10px;color:var(--bg);font-family:'Rajdhani',sans-serif;font-size:0.9rem;font-weight:700;letter-spacing:2px;cursor:pointer;touch-action:manipulation">📤 COPY INVITE LINK</button>
 
-      <!-- Members -->
       ${r.members.length ? `
         <div class="section-title" style="margin-top:1rem">Your Squad (${r.members.length})</div>
         ${r.members.map(m=>`
