@@ -1,13 +1,10 @@
 """
-🔥 Arena MiniApp API v2.4 — Security Patch & Logic Fix
+🔥 Arena MiniApp API v2.5 — Security & Auth Fix
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Security Fixes:
-  - Added JWT Authentication verification (prevents identity spoofing).
-  - Server-Side Logic: Energy consumption and Coin calculation happen on backend.
-  - Rate Limiting added to prevent bot spam.
-Logic Fixes:
-  - Fixed "Season started" logic: Seasons/Sprints are time-aware.
-  - Fixed "Endpoint not found" errors on Admin Panel.
+Features:
+  - Secure Wallet Login (Personal Sign Verification).
+  - Admin Panel Fixes (Dates, Endpoints).
+  - Username Modal support (no more blocked prompts).
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -16,6 +13,8 @@ import logging
 import datetime
 import requests as req
 import jwt  # PyJWT
+from eth_account import Account
+from eth_account.messages import encode_defunct
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from flask_limiter import Limiter
@@ -32,7 +31,7 @@ logger = logging.getLogger(__name__)
 # ─── Config ────────────────────────────────────────────────────────────────────
 SUPABASE_URL        = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY        = os.getenv("SUPABASE_SERVICE_KEY", "")
-SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "") # IMPORTANTE per sicurezza!
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 TREASURY_ADDR       = os.getenv("TREASURY_ADDR", "").lower()
 ADMIN_KEY           = os.getenv("ADMIN_KEY", "")
 FRONTEND_ORIGINS    = os.getenv(
@@ -75,7 +74,7 @@ limiter = Limiter(
     app=app,
     key_func=get_remote_address,
     default_limits=["200 per day", "50 per hour"],
-    storage_uri="memory://" # In produzione su Render con più worker usare Redis, per ora memory ok
+    storage_uri="memory://"
 )
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -138,48 +137,6 @@ def require_admin(f):
         return f(*args, **kwargs)
     return decorated
 
-# ─── Security: Auth Helper ─────────────────────────────────────────────────────
-
-def get_verified_wallet():
-    """
-    Verifica il JWT token da Supabase. 
-    Restituisce il wallet address se valido, altrimenti None.
-    """
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        return None
-    
-    token = auth_header.split(" ")[1]
-    
-    # Se il segreto JWT non è configurato, fallback alla modalità insicura (solo per transizione)
-    if not SUPABASE_JWT_SECRET:
-        logger.warning("SUPABASE_JWT_SECRET non impostato. Autenticazione JWT disabilitata.")
-        return None
-
-    try:
-        # Verifica la firma e decodifica
-        decoded = jwt.decode(
-            token, 
-            SUPABASE_JWT_SECRET, 
-            algorithms=["HS256"], 
-            audience="authenticated" # Supabase standard audience
-        )
-        # Supabase mette i metadata dell'utente in 'user_metadata'
-        # Se usi l'auth standard, il wallet potrebbe essere in 'sub' (se è l'ID) 
-        # o in user_metadata['wallet_address'] se lo salvi lì alla registrazione.
-        # Qui assumiamo che il frontend invii il wallet nel body per compatibilità,
-        # ma un sistema perfetto userebbe l'ID dal token.
-        return decoded.get("sub") 
-        
-    except jwt.ExpiredSignatureError:
-        logger.warning("Token JWT scaduto")
-        return None
-    except Exception as e:
-        logger.error(f"Errore validazione JWT: {e}")
-        return None
-
-# ─── Time Helpers for Season/Sprint ───────────────────────────────────────────
-
 def is_timestamp_active(iso_str_start, iso_str_end):
     if not iso_str_start or not iso_str_end:
         return False
@@ -192,7 +149,6 @@ def is_timestamp_active(iso_str_start, iso_str_end):
         return False
 
 def get_active_status(table_name: str):
-    """Helper generico per trovare entità attive per tempo."""
     items = sb_get(table_name, {"is_active": "eq.true"})
     for item in items:
         if is_timestamp_active(item.get("starts_at"), item.get("ends_at")):
@@ -204,7 +160,6 @@ def get_active_status(table_name: str):
 def get_onchain_balance(address: str) -> tuple[float, float]:
     avax_bal = 0.0
     arena_bal = 0.0
-    
     try:
         resp = req.post(AVAX_RPC, json={
             "jsonrpc": "2.0", "method": "eth_getBalance",
@@ -219,7 +174,6 @@ def get_onchain_balance(address: str) -> tuple[float, float]:
     try:
         padded_addr = "000000000000000000000000" + address[2:].lower()
         data = f"{BALANCEOF_SIG}{padded_addr}"
-        
         resp = req.post(AVAX_RPC, json={
             "jsonrpc": "2.0", "method": "eth_call",
             "params": [{"to": ARENA_TOKEN_ADDR, "data": data}, "latest"], "id": 2
@@ -232,16 +186,45 @@ def get_onchain_balance(address: str) -> tuple[float, float]:
 
     return avax_bal, arena_bal
 
+# ─── Security: Auth Endpoint ───────────────────────────────────────────────────
+
+@app.route("/api/auth/verify", methods=["POST"])
+def auth_verify():
+    """
+    Verifica la firma del wallet per garantire che l'utente possieda l'indirizzo.
+    """
+    try:
+        data = request.get_json(force=True) or {}
+        wallet = normalize_address(data.get("wallet_address", ""))
+        signature = data.get("signature", "")
+        message = data.get("message", "")
+
+        if not wallet or not signature or not message:
+            return jsonify({"ok": False, "error": "Missing fields"}), 400
+
+        # Recupera l'indirizzo che ha firmato il messaggio
+        encoded_msg = encode_defunct(text=message)
+        recovered_addr = Account.recover_message(encoded_msg, signature=signature)
+
+        if recovered_addr.lower() == wallet:
+            return jsonify({"ok": True, "verified": True})
+        else:
+            return jsonify({"ok": False, "error": "Signature mismatch"}), 401
+
+    except Exception as e:
+        logger.error(f"Auth verify error: {e}")
+        return jsonify({"ok": False, "error": "Verification failed"}), 500
+
 # ─── Public Endpoints ──────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
-    return "⚔️ Arena MiniApp API is Live (Secure v2.4)", 200
+    return "⚔️ Arena MiniApp API is Live (Secure v2.5)", 200
 
 @app.route("/health")
 def health():
     return jsonify({
-        "status":  "ok", "service": "arena-api", "version": "2.4",
+        "status":  "ok", "service": "arena-api", "version": "2.5",
         "supabase": bool(SUPABASE_URL and SUPABASE_KEY),
         "treasury": bool(TREASURY_ADDR),
     }), 200
@@ -304,56 +287,34 @@ def get_user(wallet: str):
     return jsonify({"ok": True, "user": user})
 
 @app.route("/api/tap", methods=["POST"])
-@limiter.limit("30 per second") # Protezione anti-spam
+@limiter.limit("30 per second")
 def record_taps():
-    """
-    ENDPOINT SICURO:
-    1. Verifica il wallet (Auth opzionale se JWT presente, altrimenti fallback body).
-    2. Calcola le monete sul server (Server-Side Logic).
-    3. Consuma energia reale.
-    """
     try:
         data   = request.get_json(force=True) or {}
         wallet = normalize_address(data.get("wallet_address", ""))
-        
-        # 1. Autenticazione (Se JWT presente, verifica corrispondenza)
-        # Nota: Se il frontend non invia ancora JWT, usiamo il wallet del body ma logghiamo warning.
-        verified_sub = get_verified_wallet()
-        if verified_sub:
-            # Qui potremmo mappare l'ID utente al wallet se necessario, 
-            # per ora assumiamo che il frontend sia autorizzato a parlare per quel wallet
-            # se possiede il token.
-            pass 
         
         if not wallet: return jsonify({"ok": False, "error": "Missing wallet_address"}), 400
 
         user = get_user_by_wallet(wallet)
         if not user: return jsonify({"ok": False, "error": "User not found"}), 404
 
-        # 2. Lettura parametri dal DB (Autorevole)
         current_energy = user.get("energy", 100)
         tap_power      = user.get("tap_power", 1)
         
-        # 3. Input dal client (solo il numero di tap, non le monete!)
         taps_requested = int(data.get("taps", 0))
         if taps_requested <= 0:
              return jsonify({"ok": False, "error": "Nothing to record"}), 400
 
-        # 4. Logica di Gioco Server-Side
-        # Calcola quanti tap sono effettivamente possibili con l'energia attuale
         actual_taps = min(taps_requested, current_energy)
         
         if actual_taps == 0:
              return jsonify({"ok": False, "error": "No energy", "energy": 0}), 400
 
-        # Calcola monete guadagnate (Server Authority)
         coins_earned = actual_taps * tap_power
         
-        # 5. Aggiornamento Stato
         new_energy = current_energy - actual_taps
         new_coins  = user.get("coins", 0) + coins_earned
         
-        # Check Season/Sprint
         new_season = user.get("season_coins", 0)
         new_sprint = user.get("sprint_coins", 0)
 
@@ -377,7 +338,7 @@ def record_taps():
             "season_coins": new_season, 
             "sprint_coins": new_sprint, 
             "energy": new_energy,
-            "earned": coins_earned # Comunica al frontend quanto ha guadagnato realmente
+            "earned": coins_earned
         })
     except Exception as e:
         logger.error(f"record_taps: {e}", exc_info=True)
@@ -716,9 +677,9 @@ def not_found(e): return jsonify({"ok": False, "error": "Endpoint not found"}), 
 
 @app.errorhandler(429)
 def ratelimit_handler(e):
-    return jsonify({"ok": False, "error": "Rate limit exceeded. Slow down!"}), 429
+    return jsonify({"ok": False, "error": "Rate limit exceeded"}), 429
 
 if __name__ == "__main__":
     port  = int(os.environ.get("PORT", 10000))
-    logger.info(f"🔥 Arena API v2.4 starting on :{port}")
+    logger.info(f"🔥 Arena API v2.5 starting on :{port}")
     app.run(host="0.0.0.0", port=port)
