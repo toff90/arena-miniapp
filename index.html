@@ -104,10 +104,10 @@
     throw new Error('Apri in Trust Wallet, MetaMask o Core Wallet');
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // sendAvaxPayment: FIX TRUSTWALLET DINAMICO
-  // Calcoliamo il gas con eth_estimateGas e aggiungiamo un margine di sicurezza.
-  // Questo è l'unico modo per far funzionare TrustWallet su Avalanche.
+    // ─────────────────────────────────────────────────────────────────────────
+  // sendAvaxPayment: FIX TRUSTWALLET BROWSER (AVAX NATIVE)
+  // TrustWallet DApp Browser richiede gasPrice esplicito per AVAX.
+  // Usiamo formato Legacy (gas + gasPrice) che è il più compatibile.
   // ─────────────────────────────────────────────────────────────────────────
   window.sendAvaxPayment = async function(amountAvax) {
     const wallet   = window._walletAddress;
@@ -122,31 +122,27 @@
     await window.switchToAvalanche(prov);
 
     try {
-      // 1. Stima il gas necessario
-      let gasLimit = '0x5208'; // Default 21000
+      // 1. Otteniamo il Gas Price attuale dalla rete Avalanche ( Fondamentale per TrustWallet )
+      let gasPrice = '0x' + BigInt(25 * 1e9).toString(16); // Default fallback: 25 Gwei
       try {
-        const estimated = await prov.request({
-          method: 'eth_estimateGas',
-          params: [{ from: wallet, to: treasury, value: weiHex }]
-        });
-        // 2. Aggiungi un margine di sicurezza del 20% (TrustWallet a volte sottostima)
-        const estNum = parseInt(estimated, 16);
-        const safeGas = Math.floor(estNum * 1.2);
-        gasLimit = '0x' + safeGas.toString(16);
-        console.log('Gas stimato:', estNum, 'Gas sicuro:', safeGas);
-      } catch (gasErr) {
-        console.warn('Stima gas fallita, uso default 21000:', gasErr);
-        // Se la stima fallisce (es. fondo insufficiente), usiamo il default
-        // ma il wallet mostrerà l'errore reale al momento dell'invio.
+        const priceResp = await prov.request({ method: 'eth_gasPrice' });
+        if (priceResp) gasPrice = priceResp;
+      } catch (e) {
+        console.warn('Impossibile ottenere gasPrice, uso default 25 Gwei');
       }
+
+      // 2. Impostiamo un Gas Limit sicuro (fisso per transfer nativi)
+      // Usiamo 30000 invece di 21000 per dare margine di sicurezza al wallet
+      const gasLimit = '0x7530'; 
 
       const txHash = await prov.request({
         method: 'eth_sendTransaction',
         params: [{
-          from:  wallet,
-          to:    treasury,
-          value: weiHex,
-          gas:   gasLimit // Gas calcolato dinamicamente
+          from:     wallet,
+          to:       treasury,
+          value:    weiHex,
+          gas:      gasLimit,
+          gasPrice: gasPrice // FIX CRITICO: Forzare gasPrice risolve il fail su TrustWallet
         }],
       });
       console.log('✅ AVAX tx sent:', txHash);
