@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Arena Admin ⚔️</title>
 <style>
-:root{--gold:#D4AF37;--bg:#080608;--surface:#0f0a0f;--border:rgba(212,175,55,0.2);--text:#E8D5A3;--dim:#6B5A3A;--green:#4CAF50;--red:#EF5350;--blue:#42A5F5;}
+:root{--gold:#D4AF37;--bg:#080608;--surface:#0f0a0f;--border:rgba(212,175,55,0.2);--text:#E8D5A3;--dim:#6B5A3A;--green:#4CAF50;--red:#EF5350;--blue:#42A5F5;--purple:#AB47BC;}
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh;}
 
@@ -53,6 +53,7 @@ select option{background:var(--bg);}
 .btn-red{background:linear-gradient(135deg,#c62828,#EF5350);color:#fff;}
 .btn-blue{background:linear-gradient(135deg,#1565c0,#42A5F5);color:#fff;}
 .btn-green{background:linear-gradient(135deg,#2e7d32,#4CAF50);color:#fff;}
+.btn-purple{background:linear-gradient(135deg,#6a1b9a,#AB47BC);color:#fff;}
 .btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text);}
 .btn:hover:not(:disabled){opacity:0.85;}
 .btn-full{width:100%;padding:0.8rem;}
@@ -96,11 +97,6 @@ tr:hover td{background:rgba(212,175,55,0.03);}
   <input type="password" class="login-input" id="adminKeyInput" placeholder="Admin key..." onkeydown="if(event.key==='Enter')doLogin()">
   <button class="login-btn" onclick="doLogin()">ENTER ARENA</button>
   <div class="login-err" id="loginErr"></div>
-  <div style="margin-top:1.5rem;font-size:0.7rem;color:var(--dim);text-align:center;max-width:280px;line-height:1.6">
-    🔑 L'Admin Key va aggiunta su Render:<br>
-    Dashboard → arena-api → Environment → Add env var<br>
-    <code style="color:var(--gold)">ADMIN_KEY = la-tua-chiave-segreta</code>
-  </div>
 </div>
 
 <!-- Admin App -->
@@ -131,14 +127,11 @@ tr:hover td{background:rgba(212,175,55,0.03);}
           <div class="stat-big" id="dashAvax">—</div>
           <div class="stat-label">AVAX (On-Chain Balance)</div>
           <div class="stat-row" style="margin-top:0.8rem"><span>$ARENA Tokens</span><span class="stat-val" id="dashArena">—</span></div>
-          <div style="margin-top:1rem;font-size:0.7rem;color:var(--dim)">
-            ℹ️ This pool updates automatically based on wallet balance.
-          </div>
         </div>
         <div class="card">
           <div class="card-title">🏁 Active Season</div>
           <div class="stat-big" id="dashSeasonName" style="font-size:1.2rem">—</div>
-          <div class="stat-label">Current season</div>
+          <div class="stat-label" id="dashSeasonDates">—</div>
           <div class="stat-row" style="margin-top:0.8rem"><span>Status</span><span id="dashSeasonStatus">—</span></div>
         </div>
         <div class="card">
@@ -159,22 +152,35 @@ tr:hover td{background:rgba(212,175,55,0.03);}
         <div class="card">
           <div class="card-title gold">🏁 End Season &amp; Start New</div>
           <p style="font-size:0.8rem;color:var(--dim);margin-bottom:1rem">
-            Ends current season, records top 10 results, resets season coins for all users.
-            <br><strong style="color:var(--red)">Warning:</strong> The Prize Pool is on-chain. Ensure you have distributed the rewards manually or via script before starting new season.
+            Ends current season, records top 10 results, resets season coins.
           </p>
           <div class="form-group">
             <label>New Season Name</label>
             <input type="text" id="newSeasonName" placeholder="Season 2 — May 2026">
           </div>
+          
+          <div style="display:flex;gap:0.5rem">
+             <div class="form-group" style="flex:1">
+                <label>Start Date (UTC)</label>
+                <input type="datetime-local" id="seasonStart">
+             </div>
+             <div class="form-group" style="flex:1">
+                <label>End Date (UTC)</label>
+                <input type="datetime-local" id="seasonEnd">
+             </div>
+          </div>
+
+          <div class="form-group">
+            <label>Prize Description</label>
+            <input type="text" id="seasonPrize" placeholder="e.g. 10 AVAX + 5000 $ARENA for Top 1">
+          </div>
+
           <div class="form-group">
             <label>Reset Tap Power (Upgrades)?</label>
             <select id="resetPower">
               <option value="true">YES - Reset everyone to x1 (Recommended)</option>
               <option value="false">NO - Keep upgrades permanent</option>
             </select>
-            <div style="font-size:0.65rem;color:var(--dim);margin-top:0.3rem">
-              💡 Recommended: YES. Resetting upgrades ensures fair play and drives new shop purchases for the prize pool.
-            </div>
           </div>
           <button class="btn btn-gold btn-full" onclick="doNewSeason()" id="btnNewSeason">🏁 END SEASON &amp; START NEW</button>
           <div id="seasonResult"></div>
@@ -211,7 +217,7 @@ tr:hover td{background:rgba(212,175,55,0.03);}
 
           <div class="form-group">
             <label>Prize Description</label>
-            <input type="text" id="sprintPrize" placeholder="Top 3 get special rewards!" value="Top 3 get special rewards!">
+            <input type="text" id="sprintPrize" placeholder="e.g. Discord Role + 50 $ARENA">
           </div>
           <button class="btn btn-blue btn-full" onclick="doStartSprint()" id="btnSprint">⚡ LAUNCH SPRINT</button>
           <div id="sprintResult"></div>
@@ -282,7 +288,7 @@ async function doLogin() {
       ADMIN_KEY = key;
       document.getElementById('loginScreen').style.display = 'none';
       document.getElementById('adminApp').style.display = 'block';
-      initDates(); // Set default dates
+      initDates(); 
       loadDashboard();
     } else {
       document.getElementById('loginErr').textContent = d.error || 'Wrong key';
@@ -301,15 +307,18 @@ function doLogout() {
   document.getElementById('adminKeyInput').value = '';
 }
 
-// Init default dates for sprint
 function initDates() {
     const now = new Date();
     const later = new Date(now.getTime() + 24*60*60*1000);
+    const seasonEnd = new Date(now.getTime() + 30*24*60*60*1000); // +30 days for season
     
     const toInputFormat = (d) => d.toISOString().slice(0, 16);
     
     document.getElementById('sprintStart').value = toInputFormat(now);
     document.getElementById('sprintEnd').value = toInputFormat(later);
+    
+    document.getElementById('seasonStart').value = toInputFormat(now);
+    document.getElementById('seasonEnd').value = toInputFormat(seasonEnd);
 }
 
 async function apiAdmin(path, body = null) {
@@ -343,15 +352,20 @@ async function loadDashboard() {
       fetch(`${API}/api/leaderboard?type=alltime&limit=5`).then(r=>r.json())
     ]);
 
-    // Use on-chain balances if available, fallback to DB
-    const avaxBal = status.prize_pool_avax || (status.prize_pool || {}).total_avax || 0;
-    const arenaBal = status.prize_pool_arena || (status.prize_pool || {}).total_arena || 0;
+    const avaxBal = status.prize_pool_avax || 0;
+    const arenaBal = status.prize_pool_arena || 0;
 
     document.getElementById('dashAvax').textContent  = parseFloat(avaxBal).toFixed(4) + ' AVAX';
     document.getElementById('dashArena').textContent = parseInt(arenaBal).toLocaleString();
 
     const activeSeason = (status.seasons || []).find(s => s.is_active);
     document.getElementById('dashSeasonName').textContent  = activeSeason?.name || '—';
+    if(activeSeason?.ends_at) {
+       document.getElementById('dashSeasonDates').textContent = `Ends: ${new Date(activeSeason.ends_at).toLocaleDateString()}`;
+    } else {
+       document.getElementById('dashSeasonDates').textContent = '—';
+    }
+    
     document.getElementById('dashSeasonStatus').innerHTML  = activeSeason
       ? '<span class="badge badge-active">ACTIVE</span>'
       : '<span class="badge badge-inactive">NONE</span>';
@@ -360,9 +374,8 @@ async function loadDashboard() {
     document.getElementById('dashSprintName').textContent = activeSprint?.name || 'No active sprint';
     document.getElementById('dashSprintTime').textContent = activeSprint ? `Ends: ${new Date(activeSprint.ends_at).toLocaleString()}` : '';
 
-    document.getElementById('headerSub').textContent = `API: ${API} | Pool: ${parseFloat(avaxBal).toFixed(4)} AVAX`;
+    document.getElementById('headerSub').textContent = `API Connected | Pool: ${parseFloat(avaxBal).toFixed(4)} AVAX`;
 
-    // Top 5
     const medals = ['🥇','🥈','🥉','④','⑤'];
     const top5el = document.getElementById('dashTop5');
     if (lb.ok && lb.entries.length) {
@@ -386,17 +399,44 @@ async function loadDashboard() {
 async function doNewSeason() {
   const name   = document.getElementById('newSeasonName').value || `Season ${new Date().toLocaleDateString('en',{month:'long',year:'numeric'})}`;
   const reset  = document.getElementById('resetPower').value === 'true';
+  const prize  = document.getElementById('seasonPrize').value;
+  
+  const startInput = document.getElementById('seasonStart').value;
+  const endInput   = document.getElementById('seasonEnd').value;
+  
+  if (!startInput || !endInput) {
+      alert("Please select Start and End dates for the Season.");
+      return;
+  }
+  
+  const startDate = new Date(startInput);
+  const endDate   = new Date(endInput);
+
+  if (endDate <= startDate) {
+      alert("End date must be after start date.");
+      return;
+  }
+
   const btn    = document.getElementById('btnNewSeason');
   const result = document.getElementById('seasonResult');
 
-  if (!confirm(`⚠️ Are you sure?\n\nThis will END the current season and start "${name}".\n\n${reset ? '🚨 Upgrades (Tap Power) WILL BE RESET to x1 for all users.' : 'Upgrades will be kept.'}`)) return;
+  if (!confirm(`⚠️ Start "${name}"?\n\n${reset ? '🚨 Upgrades WILL BE RESET.' : 'Upgrades kept.'}\nEnds: ${endDate.toLocaleString()}`)) return;
 
   btn.disabled = true;
   result.innerHTML = '<div class="alert alert-warn">⏳ Processing...</div>';
   try {
-    const r = await apiAdmin('/api/admin/new-season', { season_name: name, reset_tap_power: reset });
+    // We send ends_at to backend. Backend needs to handle this new field.
+    // Assuming backend accepts 'ends_at' ISO string.
+    const r = await apiAdmin('/api/admin/new-season', { 
+        season_name: name, 
+        reset_tap_power: reset, 
+        prize_description: prize,
+        starts_at: startDate.toISOString(),
+        ends_at: endDate.toISOString()
+    });
+    
     if (r.ok) {
-      result.innerHTML = `<div class="alert alert-ok">✅ Season ended!<br>Results recorded. Users reset.</div>`;
+      result.innerHTML = `<div class="alert alert-ok">✅ Season started!<br>Ends: ${new Date(r.ends_at || endDate).toLocaleString()}</div>`;
       loadDashboard();
       loadSeasonHistory();
     } else {
@@ -415,12 +455,13 @@ async function loadSeasonHistory() {
     const r = await apiAdmin('/api/admin/status');
     const seasons = (r.seasons || []).sort((a,b) => b.id - a.id);
     el.innerHTML = seasons.length
-      ? `<table><tr><th>ID</th><th>Name</th><th>Status</th><th>Started</th></tr>
+      ? `<table><tr><th>ID</th><th>Name</th><th>Prize</th><th>Ends</th><th>Status</th></tr>
           ${seasons.map(s=>`<tr>
             <td>${s.id}</td>
             <td>${esc(s.name)}</td>
+            <td style="font-size:0.7rem">${esc(s.prize_description || '—')}</td>
+            <td>${s.ends_at ? new Date(s.ends_at).toLocaleDateString() : '—'}</td>
             <td>${s.is_active ? '<span class="badge badge-active">ACTIVE</span>' : '<span class="badge badge-inactive">ended</span>'}</td>
-            <td>${s.started_at ? new Date(s.started_at).toLocaleDateString() : '—'}</td>
           </tr>`).join('')}</table>`
       : 'No seasons yet';
   } catch(e) { el.textContent = 'Error: ' + e.message; }
@@ -441,30 +482,28 @@ async function doStartSprint() {
 
   const startDate = new Date(startInput);
   const endDate   = new Date(endInput);
-  const now       = new Date();
 
   if (endDate <= startDate) {
       alert("End time must be after start time.");
       return;
   }
-  
-  // Calculate hours for backend compatibility if needed, or send dates
-  // We assume backend might prefer hours or specific ISO dates.
-  // Modern backend should accept dates, but we calculate hours as fallback logic for UI.
-  const hours = Math.round((endDate - startDate) / (1000 * 60 * 60));
 
   const btn   = document.getElementById('btnSprint');
   const result= document.getElementById('sprintResult');
   btn.disabled = true;
   result.innerHTML = '<div class="alert alert-warn">⏳ Launching...</div>';
   try {
-    // Sending ISO dates is better, but existing backend might expect 'hours'.
-    // If you updated backend to accept dates, use 'ends_at'. 
-    // Assuming backend needs 'hours' based on previous code:
+    // We send the ISO dates. The backend should be updated to handle 'starts_at' and 'ends_at'.
+    // If backend only uses 'hours', we calculate it:
+    const hours = Math.round((endDate - startDate) / (1000 * 60 * 60));
+    
+    // Sending both for compatibility
     const r = await apiAdmin('/api/admin/sprint', { 
         sprint_name: name, 
         hours: hours, 
-        prize_description: prize 
+        prize_description: prize,
+        starts_at: startDate.toISOString(),
+        ends_at: endDate.toISOString()
     });
     
     if (r.ok) {
@@ -496,9 +535,10 @@ async function loadSprintHistory() {
     const r = await apiAdmin('/api/admin/status');
     const sprints = (r.sprints || []).sort((a,b) => b.id - a.id);
     el.innerHTML = sprints.length
-      ? `<table><tr><th>Name</th><th>Status</th><th>Ends</th></tr>
+      ? `<table><tr><th>Name</th><th>Prize</th><th>Status</th><th>Ends</th></tr>
           ${sprints.map(s=>`<tr>
             <td>${esc(s.name)}</td>
+            <td style="font-size:0.7rem">${esc(s.prize_description || '—')}</td>
             <td>${s.is_active ? '<span class="badge badge-active">ACTIVE</span>' : '<span class="badge badge-inactive">ended</span>'}</td>
             <td>${s.ends_at ? new Date(s.ends_at).toLocaleString() : '—'}</td>
           </tr>`).join('')}</table>`
@@ -512,9 +552,8 @@ async function loadUsers() {
   const order = document.getElementById('userOrder').value;
   el.innerHTML = '<div class="loader">Loading...</div>';
   try {
-    const r = await fetch(`${API}/api/admin/users?order=${order}&limit=50`, {
-      headers: { 'X-Admin-Key': ADMIN_KEY }
-    }).then(x=>x.json());
+    // Using apiAdmin helper to ensure header is sent
+    const r = await apiAdmin(`/api/admin/users?order=${order}&limit=50`);
 
     if (!r.ok) { el.innerHTML = `<div class="alert alert-err">❌ ${r.error}</div>`; return; }
     el.innerHTML = `<div style="font-size:0.75rem;color:var(--dim);margin-bottom:0.5rem">${r.count} users</div>
