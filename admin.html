@@ -120,7 +120,6 @@ tr:hover td{background:rgba(212,175,55,0.03);}
       <button class="tab active" onclick="showTab('dashboard')">📊 Dashboard</button>
       <button class="tab" onclick="showTab('season')">🏁 Season</button>
       <button class="tab" onclick="showTab('sprint')">⚡ Sprint</button>
-      <button class="tab" onclick="showTab('prize')">💰 Prize Pool</button>
       <button class="tab" onclick="showTab('users')">👥 Users</button>
     </div>
 
@@ -128,10 +127,13 @@ tr:hover td{background:rgba(212,175,55,0.03);}
     <div id="tab-dashboard">
       <div class="grid">
         <div class="card">
-          <div class="card-title gold">💎 Prize Pool</div>
+          <div class="card-title gold">💎 Live Prize Pool</div>
           <div class="stat-big" id="dashAvax">—</div>
-          <div class="stat-label">AVAX in pool</div>
-          <div class="stat-row" style="margin-top:0.8rem"><span>$ARENA</span><span class="stat-val" id="dashArena">—</span></div>
+          <div class="stat-label">AVAX (On-Chain Balance)</div>
+          <div class="stat-row" style="margin-top:0.8rem"><span>$ARENA Tokens</span><span class="stat-val" id="dashArena">—</span></div>
+          <div style="margin-top:1rem;font-size:0.7rem;color:var(--dim)">
+            ℹ️ This pool updates automatically based on wallet balance.
+          </div>
         </div>
         <div class="card">
           <div class="card-title">🏁 Active Season</div>
@@ -156,17 +158,23 @@ tr:hover td{background:rgba(212,175,55,0.03);}
       <div class="grid">
         <div class="card">
           <div class="card-title gold">🏁 End Season &amp; Start New</div>
-          <p style="font-size:0.8rem;color:var(--dim);margin-bottom:1rem">Ends the current season, records top 10 results, distributes prize pool percentages, resets season coins.</p>
+          <p style="font-size:0.8rem;color:var(--dim);margin-bottom:1rem">
+            Ends current season, records top 10 results, resets season coins for all users.
+            <br><strong style="color:var(--red)">Warning:</strong> The Prize Pool is on-chain. Ensure you have distributed the rewards manually or via script before starting new season.
+          </p>
           <div class="form-group">
             <label>New Season Name</label>
             <input type="text" id="newSeasonName" placeholder="Season 2 — May 2026">
           </div>
           <div class="form-group">
-            <label>Reset Tap Power?</label>
+            <label>Reset Tap Power (Upgrades)?</label>
             <select id="resetPower">
-              <option value="true">Yes — reset to x1 (recommended)</option>
-              <option value="false">No — keep upgrades</option>
+              <option value="true">YES - Reset everyone to x1 (Recommended)</option>
+              <option value="false">NO - Keep upgrades permanent</option>
             </select>
+            <div style="font-size:0.65rem;color:var(--dim);margin-top:0.3rem">
+              💡 Recommended: YES. Resetting upgrades ensures fair play and drives new shop purchases for the prize pool.
+            </div>
           </div>
           <button class="btn btn-gold btn-full" onclick="doNewSeason()" id="btnNewSeason">🏁 END SEASON &amp; START NEW</button>
           <div id="seasonResult"></div>
@@ -182,16 +190,25 @@ tr:hover td{background:rgba(212,175,55,0.03);}
     <div id="tab-sprint" style="display:none">
       <div class="grid">
         <div class="card">
-          <div class="card-title gold">⚡ Launch Sprint</div>
-          <p style="font-size:0.8rem;color:var(--dim);margin-bottom:1rem">Creates a short-duration competition. Resets sprint_coins for all users and starts fresh.</p>
+          <div class="card-title gold">⚡ Launch New Sprint</div>
+          <p style="font-size:0.8rem;color:var(--dim);margin-bottom:1rem">Sprints reset the 'Sprint Coins' counter. Leaderboard freezes automatically at End Time.</p>
+          
           <div class="form-group">
             <label>Sprint Name</label>
             <input type="text" id="sprintName" placeholder="⚡ Weekend Sprint" value="⚡ Arena Sprint">
           </div>
-          <div class="form-group">
-            <label>Duration (hours)</label>
-            <input type="number" id="sprintHours" value="24" min="1" max="168">
+          
+          <div style="display:flex;gap:0.5rem">
+             <div class="form-group" style="flex:1">
+                <label>Start Time (UTC)</label>
+                <input type="datetime-local" id="sprintStart">
+             </div>
+             <div class="form-group" style="flex:1">
+                <label>End Time (UTC)</label>
+                <input type="datetime-local" id="sprintEnd">
+             </div>
           </div>
+
           <div class="form-group">
             <label>Prize Description</label>
             <input type="text" id="sprintPrize" placeholder="Top 3 get special rewards!" value="Top 3 get special rewards!">
@@ -200,43 +217,12 @@ tr:hover td{background:rgba(212,175,55,0.03);}
           <div id="sprintResult"></div>
         </div>
         <div class="card">
-          <div class="card-title">🛑 End Active Sprint</div>
-          <p style="font-size:0.8rem;color:var(--dim);margin-bottom:1rem">Manually end the active sprint before its scheduled end.</p>
+          <div class="card-title">🛑 Control</div>
+           <p style="font-size:0.8rem;color:var(--dim);margin-bottom:1rem">Manually end the active sprint before its scheduled end.</p>
           <button class="btn btn-red btn-full" onclick="doEndSprint()">🛑 END SPRINT NOW</button>
           <div id="endSprintResult"></div>
           <div class="card-title" style="margin-top:1.5rem">📋 Sprint History</div>
           <div id="sprintHistory" class="loader">Loading...</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- PRIZE POOL -->
-    <div id="tab-prize" style="display:none">
-      <div class="grid">
-        <div class="card">
-          <div class="card-title gold">💰 Adjust Prize Pool</div>
-          <p style="font-size:0.8rem;color:var(--dim);margin-bottom:1rem">Use this to manually add AVAX (e.g. after a direct transfer) or correct the balance.</p>
-          <div class="form-group">
-            <label>AVAX Amount</label>
-            <input type="number" id="prizeAvax" step="0.001" min="0" placeholder="0.5">
-          </div>
-          <div class="form-group">
-            <label>$ARENA Amount</label>
-            <input type="number" id="prizeArena" min="0" placeholder="0" value="0">
-          </div>
-          <div class="form-group">
-            <label>Mode</label>
-            <select id="prizeMode">
-              <option value="add">Add to current balance</option>
-              <option value="set">Set exact balance</option>
-            </select>
-          </div>
-          <button class="btn btn-gold btn-full" onclick="doPrizePool()">💰 UPDATE POOL</button>
-          <div id="prizeResult"></div>
-        </div>
-        <div class="card">
-          <div class="card-title">📊 Distribution Preview</div>
-          <div id="distPreview" class="loader">Loading...</div>
         </div>
       </div>
     </div>
@@ -272,11 +258,9 @@ tr:hover td{background:rgba(212,175,55,0.03);}
 
 <script>
 // ── Config ──────────────────────────────────────────────────
-// When served from Render (/admin), API is same origin → ''
-// When opened locally, falls back to saved URL or the Render URL
 const API = localStorage.getItem('arena_api') ||
             (window.location.hostname !== 'localhost' && !window.location.hostname.includes('github')
-              ? window.location.origin   // same Render instance
+              ? window.location.origin
               : 'https://arena-tap.onrender.com');
 let ADMIN_KEY = localStorage.getItem('arena_admin_key') || '';
 
@@ -285,7 +269,6 @@ async function doLogin() {
   const key = document.getElementById('adminKeyInput').value.trim();
   const apiUrl = document.getElementById('apiUrlInput').value.trim() || API;
   if (!key) return;
-  // Save for next visit
   localStorage.setItem('arena_admin_key', key);
   localStorage.setItem('arena_api', apiUrl);
   try {
@@ -299,6 +282,7 @@ async function doLogin() {
       ADMIN_KEY = key;
       document.getElementById('loginScreen').style.display = 'none';
       document.getElementById('adminApp').style.display = 'block';
+      initDates(); // Set default dates
       loadDashboard();
     } else {
       document.getElementById('loginErr').textContent = d.error || 'Wrong key';
@@ -317,6 +301,17 @@ function doLogout() {
   document.getElementById('adminKeyInput').value = '';
 }
 
+// Init default dates for sprint
+function initDates() {
+    const now = new Date();
+    const later = new Date(now.getTime() + 24*60*60*1000);
+    
+    const toInputFormat = (d) => d.toISOString().slice(0, 16);
+    
+    document.getElementById('sprintStart').value = toInputFormat(now);
+    document.getElementById('sprintEnd').value = toInputFormat(later);
+}
+
 async function apiAdmin(path, body = null) {
   const opts = {
     method: body ? 'POST' : 'GET',
@@ -328,7 +323,7 @@ async function apiAdmin(path, body = null) {
 }
 
 // ── Tabs ─────────────────────────────────────────────────────
-const TABS = ['dashboard','season','sprint','prize','users'];
+const TABS = ['dashboard','season','sprint','users'];
 function showTab(tab) {
   TABS.forEach(t => {
     document.getElementById(`tab-${t}`).style.display = t === tab ? '' : 'none';
@@ -336,7 +331,6 @@ function showTab(tab) {
   });
   if (tab === 'season')   loadSeasonHistory();
   if (tab === 'sprint')   loadSprintHistory();
-  if (tab === 'prize')    loadDistPreview();
   if (tab === 'users')    loadUsers();
   if (tab === 'dashboard') loadDashboard();
 }
@@ -349,9 +343,12 @@ async function loadDashboard() {
       fetch(`${API}/api/leaderboard?type=alltime&limit=5`).then(r=>r.json())
     ]);
 
-    const pool = status.prize_pool || {};
-    document.getElementById('dashAvax').textContent  = (pool.total_avax || 0).toFixed(4) + ' AVAX';
-    document.getElementById('dashArena').textContent = (pool.total_arena || 0).toLocaleString();
+    // Use on-chain balances if available, fallback to DB
+    const avaxBal = status.prize_pool_avax || (status.prize_pool || {}).total_avax || 0;
+    const arenaBal = status.prize_pool_arena || (status.prize_pool || {}).total_arena || 0;
+
+    document.getElementById('dashAvax').textContent  = parseFloat(avaxBal).toFixed(4) + ' AVAX';
+    document.getElementById('dashArena').textContent = parseInt(arenaBal).toLocaleString();
 
     const activeSeason = (status.seasons || []).find(s => s.is_active);
     document.getElementById('dashSeasonName').textContent  = activeSeason?.name || '—';
@@ -363,7 +360,7 @@ async function loadDashboard() {
     document.getElementById('dashSprintName').textContent = activeSprint?.name || 'No active sprint';
     document.getElementById('dashSprintTime').textContent = activeSprint ? `Ends: ${new Date(activeSprint.ends_at).toLocaleString()}` : '';
 
-    document.getElementById('headerSub').textContent = `API: ${API} · Pool: ${(pool.total_avax||0).toFixed(4)} AVAX`;
+    document.getElementById('headerSub').textContent = `API: ${API} | Pool: ${parseFloat(avaxBal).toFixed(4)} AVAX`;
 
     // Top 5
     const medals = ['🥇','🥈','🥉','④','⑤'];
@@ -392,17 +389,14 @@ async function doNewSeason() {
   const btn    = document.getElementById('btnNewSeason');
   const result = document.getElementById('seasonResult');
 
-  if (!confirm(`⚠️ Are you sure you want to END the current season and start "${name}"?\n\nThis will:\n- Record top 10 results\n- Reset season coins for all users\n${reset ? '- Reset tap power to x1\n' : ''}- Clear prize pool`)) return;
+  if (!confirm(`⚠️ Are you sure?\n\nThis will END the current season and start "${name}".\n\n${reset ? '🚨 Upgrades (Tap Power) WILL BE RESET to x1 for all users.' : 'Upgrades will be kept.'}`)) return;
 
   btn.disabled = true;
   result.innerHTML = '<div class="alert alert-warn">⏳ Processing...</div>';
   try {
     const r = await apiAdmin('/api/admin/new-season', { season_name: name, reset_tap_power: reset });
     if (r.ok) {
-      result.innerHTML = `<div class="alert alert-ok">✅ Season ended! Pool was ${r.pool_avax.toFixed(4)} AVAX<br>
-        <strong>Results:</strong><br>
-        ${r.results.slice(0,3).map(x=>`#${x.rank} ${x.coins.toLocaleString()} coins → ${x.prize_avax.toFixed(4)} AVAX`).join('<br>')}
-      </div>`;
+      result.innerHTML = `<div class="alert alert-ok">✅ Season ended!<br>Results recorded. Users reset.</div>`;
       loadDashboard();
       loadSeasonHistory();
     } else {
@@ -435,14 +429,44 @@ async function loadSeasonHistory() {
 // ── Sprint ────────────────────────────────────────────────────
 async function doStartSprint() {
   const name  = document.getElementById('sprintName').value || '⚡ Arena Sprint';
-  const hours = parseInt(document.getElementById('sprintHours').value) || 24;
   const prize = document.getElementById('sprintPrize').value || 'Top 3 special rewards!';
+  
+  const startInput = document.getElementById('sprintStart').value;
+  const endInput   = document.getElementById('sprintEnd').value;
+
+  if (!startInput || !endInput) {
+      alert("Please select Start and End dates.");
+      return;
+  }
+
+  const startDate = new Date(startInput);
+  const endDate   = new Date(endInput);
+  const now       = new Date();
+
+  if (endDate <= startDate) {
+      alert("End time must be after start time.");
+      return;
+  }
+  
+  // Calculate hours for backend compatibility if needed, or send dates
+  // We assume backend might prefer hours or specific ISO dates.
+  // Modern backend should accept dates, but we calculate hours as fallback logic for UI.
+  const hours = Math.round((endDate - startDate) / (1000 * 60 * 60));
+
   const btn   = document.getElementById('btnSprint');
   const result= document.getElementById('sprintResult');
   btn.disabled = true;
   result.innerHTML = '<div class="alert alert-warn">⏳ Launching...</div>';
   try {
-    const r = await apiAdmin('/api/admin/sprint', { sprint_name: name, hours, prize_description: prize });
+    // Sending ISO dates is better, but existing backend might expect 'hours'.
+    // If you updated backend to accept dates, use 'ends_at'. 
+    // Assuming backend needs 'hours' based on previous code:
+    const r = await apiAdmin('/api/admin/sprint', { 
+        sprint_name: name, 
+        hours: hours, 
+        prize_description: prize 
+    });
+    
     if (r.ok) {
       result.innerHTML = `<div class="alert alert-ok">✅ Sprint "${r.sprint_name}" launched!<br>Ends: ${new Date(r.ends_at).toLocaleString()}</div>`;
       loadDashboard(); loadSprintHistory();
@@ -479,40 +503,6 @@ async function loadSprintHistory() {
             <td>${s.ends_at ? new Date(s.ends_at).toLocaleString() : '—'}</td>
           </tr>`).join('')}</table>`
       : 'No sprints yet';
-  } catch(e) { el.textContent = 'Error: ' + e.message; }
-}
-
-// ── Prize Pool ────────────────────────────────────────────────
-async function doPrizePool() {
-  const avax  = parseFloat(document.getElementById('prizeAvax').value) || 0;
-  const arena = parseInt(document.getElementById('prizeArena').value) || 0;
-  const mode  = document.getElementById('prizeMode').value;
-  const result= document.getElementById('prizeResult');
-  try {
-    const r = await apiAdmin('/api/admin/set-prize-pool', { avax, arena, mode });
-    if (r.ok) {
-      result.innerHTML = `<div class="alert alert-ok">✅ Pool updated: ${r.avax.toFixed(4)} AVAX | ${r.arena.toLocaleString()} $ARENA</div>`;
-      loadDistPreview(); loadDashboard();
-    } else {
-      result.innerHTML = `<div class="alert alert-err">❌ ${r.error}</div>`;
-    }
-  } catch(e) { result.innerHTML = `<div class="alert alert-err">❌ ${e.message}</div>`; }
-}
-
-async function loadDistPreview() {
-  const el = document.getElementById('distPreview');
-  el.innerHTML = '<div class="loader">Loading...</div>';
-  try {
-    const r = await fetch(`${API}/api/prize-pool`).then(x=>x.json());
-    if (!r.ok) { el.textContent = 'Error'; return; }
-    const medals = ['🥇','🥈','🥉','④','⑤','⑥','⑦','⑧','⑨','⑩'];
-    el.innerHTML = `<div style="font-size:1.5rem;font-weight:700;color:var(--gold);margin-bottom:0.5rem">${r.avax.toFixed(4)} AVAX</div>
-      <table><tr><th>Rank</th><th>%</th><th>AVAX</th></tr>
-        ${(r.distribution||[]).map((d,i)=>`<tr>
-          <td>${medals[i]||d.rank}</td>
-          <td>${(d.pct*100).toFixed(0)}%</td>
-          <td style="color:var(--gold);font-weight:600">${d.avax.toFixed(4)}</td>
-        </tr>`).join('')}</table>`;
   } catch(e) { el.textContent = 'Error: ' + e.message; }
 }
 
@@ -570,7 +560,6 @@ const savedApi = localStorage.getItem('arena_api');
 if (savedApi) document.getElementById('apiUrlInput').value = savedApi;
 if (savedKey) {
   document.getElementById('adminKeyInput').value = savedKey;
-  // Auto-login if we have a saved key
   doLogin();
 } else {
   document.getElementById('adminKeyInput').focus();
