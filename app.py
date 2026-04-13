@@ -1,11 +1,11 @@
 """
-🔥 Arena MiniApp API v2.6 — UX Fix & Energy Sync
+🔥 Arena MiniApp API v2.7 — Combo Support & UX Polish
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Fixes:
-  - Server now calculates Energy Regen (solves "No energy" 400 errors).
-  - Removed harsh "No energy" rejection: taps are clamped to available energy.
-  - Fixed Registration Race Condition (no more 409 Duplicate Key errors).
-  - Removed rate limiting on Tap endpoint for fluid gameplay.
+  - /health endpoint added (fixes 404 UptimeRobot).
+  - Combo x10 Logic Restored: Server validates max multiplier.
+  - "Smart Energy": Syncs energy server-side but accepts client taps to prevent lag friction.
+  - Race condition fix on registration.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -32,12 +32,13 @@ SUPABASE_KEY        = os.getenv("SUPABASE_SERVICE_KEY", "")
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 TREASURY_ADDR       = os.getenv("TREASURY_ADDR", "").lower()
 ADMIN_KEY           = os.getenv("ADMIN_KEY", "")
-FRONTEND_ORIGINS    = os.getenv("FRONTEND_ORIGINS", "*").split(",") # Allow all for testing if needed
+FRONTEND_ORIGINS    = os.getenv("FRONTEND_ORIGINS", "*").split(",")
 AVAX_RPC            = "https://api.avax.network/ext/bc/C/rpc"
 ARENA_TOKEN_ADDR    = "0xb8d7710f7d8349a506b75dd184f05777c82dad0c"
 BALANCEOF_SIG       = "0x70a08231"
 MAX_ENERGY          = 100
 ENERGY_REGEN_MIN    = 5
+MAX_COMBO           = 10  # Moltiplicatore massimo consentito
 
 HEADERS = {
     "apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -98,7 +99,7 @@ def get_user_by_wallet(wallet):
     rows = sb_get("users", {"wallet_address": f"eq.{normalize_address(wallet)}"})
     if not rows: return None
     u = rows[0]
-    # IMPORTANTE: Aggiorna l'energia lato server prima di restituire l'utente
+    # Aggiorna l'energia lato server prima di restituire l'utente
     u["energy"] = calc_energy_regen(u.get("energy", 0), u.get("last_energy_update"))
     return u
 
@@ -141,7 +142,15 @@ def get_onchain_balance(address):
     except: pass
     return avax, arena
 
-# ─── Auth ─────────────────────────────────────────────────────────────────────
+# ─── Endpoints ────────────────────────────────────────────────────────────────
+
+@app.route("/")
+def index(): return "⚔️ Arena API v2.7", 200
+
+@app.route("/health")
+def health():
+    """Health check per UptimeRobot."""
+    return jsonify({"status": "ok", "version": "2.7"}), 200
 
 @app.route("/api/auth/verify", methods=["POST"])
 def auth_verify():
@@ -155,11 +164,6 @@ def auth_verify():
         return jsonify({"ok":False, "error":"Mismatch"}), 401
     except Exception as e: return jsonify({"ok":False, "error":str(e)}), 500
 
-# ─── Core Endpoints ───────────────────────────────────────────────────────────
-
-@app.route("/")
-def index(): return "⚔️ Arena API v2.6", 200
-
 @app.route("/api/user/register", methods=["POST"])
 def register_user():
     try:
@@ -167,10 +171,8 @@ def register_user():
         wallet = normalize_address(d.get("wallet_address",""))
         if not wallet or len(wallet) < 10: return jsonify({"ok":False, "error":"Invalid wallet"}), 400
         
-        # Check existing first
         user = get_user_by_wallet(wallet)
         if user:
-            # Aggiorna username se fornito
             updates = {}
             un = str(d.get("username",""))[:30]
             fn = str(d.get("first_name",""))[:50]
@@ -179,7 +181,6 @@ def register_user():
             if updates: sb_patch("users", {"wallet_address":f"eq.{wallet}"}, updates)
             return jsonify({"ok":True, "user":user, "is_new":False})
 
-        # Create new
         ref = normalize_address(d.get("referral_code",""))
         new_u = {
             "wallet_address": wallet, 
@@ -191,13 +192,11 @@ def register_user():
         }
         
         created, err = sb_insert("users", new_u)
-        # Se fallisce per race condition (409), riprova a leggere
-        if err and "23505" in str(err): 
+        if err and "23505" in str(err): # Race condition fix
             user = get_user_by_wallet(wallet)
             return jsonify({"ok":True, "user":user, "is_new":False})
         if err: return jsonify({"ok":False, "error":str(err)[:100]}), 500
 
-        # Referral logic
         if ref and ref != wallet:
             ru = get_user_by_wallet(ref)
             if ru:
@@ -208,42 +207,60 @@ def register_user():
         return jsonify({"ok":False, "error":str(e)}), 500
 
 @app.route("/api/tap", methods=["POST"])
-# RIMOSSO LIMITER STRETTO PER TAP GAME
 def record_taps():
     """
-    Logic: Server calculates energy regen.
-    If user sends more taps than energy, we count ONLY available energy (forgiving).
+    Combo-Safe Logic:
+    1. Server calcola l'energia reale rigenerata.
+    2. Accetta il valore 'coins_earned' dal frontend (che include le combo x10).
+    3. Valida che le monete non superino il massimo teorico (taps * power * 10).
+    4. Se l'utente ha poca energia, usa quella rimanente senza bloccare.
     """
     try:
         d = request.json
         wallet = normalize_address(d.get("wallet_address",""))
         taps_sent = int(d.get("taps", 0))
+        client_coins = int(d.get("coins_earned", 0))
         
         if not wallet: return jsonify({"ok":False, "error":"Missing wallet"}), 400
         if taps_sent <= 0: return jsonify({"ok":False, "error":"Nothing to record"}), 400
 
-        user = get_user_by_wallet(wallet) # Questo calcola già l'energia rigenerata
+        user = get_user_by_wallet(wallet) # Calcola energia reale
         if not user: return jsonify({"ok":False, "error":"User not found"}), 404
 
         current_energy = user.get("energy", 0)
         tap_power = user.get("tap_power", 1)
 
-        # LOGICA PERMISSIVA: Se l'utente tappa più dell'energia che ha, usiamo l'energia rimanente.
-        # Questo evita errori 400 frustranti se il frontend è leggermente sfasato.
+        # 1. Calcola massimo teorico consentito (Anti-Cheat)
+        # Massimo consentito: numero tap * potenza * combo massima (10)
+        max_valid_coins = taps_sent * tap_power * MAX_COMBO
+        
+        # 2. Decide quali monete registrare
+        # Se il client dichiara più del consentito, taglia al massimo consentito
+        final_coins = min(client_coins, max_valid_coins)
+
+        # 3. Calcola consumo energetico reale
+        # Se il client ha usato combo x10, consuma energia proporzionalmente?
+        # No, in questo gioco 1 tap = 1 energia, ma moltiplica le monete.
+        # Quindi i tap inviati corrispondono all'energia usata.
+        
         actual_taps = min(taps_sent, current_energy)
         
         if actual_taps <= 0:
-             # Se davvero non c'è energia, restituiamo lo stato attuale senza errori
-             return jsonify({"ok":True, "coins":user["coins"], "energy":0, "earned":0})
+             return jsonify({"ok":True, "coins":user["coins"], "energy":current_energy, "earned":0})
 
-        coins_earned = actual_taps * tap_power
+        # Ricalcolo finale per sicurezza: se l'energia è finita, ridimensioniamo le monete guadagnate
+        # Rapporto tra quello che poteva fare (actual_taps) e quello che ha dichiarato (taps_sent)
+        if actual_taps < taps_sent:
+             ratio = actual_taps / taps_sent
+             final_coins = int(final_coins * ratio)
+
         new_energy = current_energy - actual_taps
-        new_coins = user.get("coins",0) + coins_earned
+        new_coins = user.get("coins",0) + final_coins
         new_season = user.get("season_coins",0)
         new_sprint = user.get("sprint_coins",0)
 
-        if get_active_status("seasons"): new_season += coins_earned
-        if get_active_status("sprints"): new_sprint += coins_earned
+        if get_active_status("seasons"): new_season += final_coins
+        if get_active_status("sprints"): new_sprint += final_coins
 
         sb_patch("users", {"wallet_address":f"eq.{wallet}"}, {
             "coins": new_coins, "season_coins": new_season, "sprint_coins": new_sprint,
@@ -252,7 +269,7 @@ def record_taps():
 
         return jsonify({
             "ok": True, "coins": new_coins, "season_coins": new_season,
-            "sprint_coins": new_sprint, "energy": new_energy, "earned": coins_earned
+            "sprint_coins": new_sprint, "energy": new_energy, "earned": final_coins
         })
     except Exception as e:
         logger.error(f"Tap error: {e}")
@@ -294,8 +311,6 @@ def claim_daily():
         return jsonify({"ok":True, "coins_earned":bonus, "coins":nc, "streak":streak})
     except Exception as e: return jsonify({"ok":False, "error":str(e)}), 500
 
-# ... (RESTO DEGLI ENDPOINT INALTERATI: leaderboard, prize-pool, shop, admin) ...
-
 @app.route("/api/leaderboard", methods=["GET"])
 def leaderboard():
     try:
@@ -324,7 +339,7 @@ def squad_info(wallet):
         return jsonify({"ok":True, "members":mems, "member_count":len(mems), "total_coins":total, "passive_5pct":int(total*0.05), "referral_code":w})
     except Exception as e: return jsonify({"ok":False, "error":str(e)}), 500
 
-# ... (PAYMENT & ADMIN ENDPOINTS SIMILARI A VERSIONE PRECEDENTE) ...
+# --- PAYMENT & ADMIN ENDPOINTS (Inalterati) ---
 
 @app.route("/api/verify-payment", methods=["POST"])
 def verify_payment():
@@ -397,7 +412,7 @@ def verify_arena_payment():
             return jsonify({"ok":True, "label":label, "tap_power":val})
     except Exception as e: return jsonify({"ok":False, "error":str(e)}), 500
 
-# ─── Admin Endpoints ───────────────────────────────────────────────────────────
+# --- ADMIN ---
 
 @app.route("/api/admin/status", methods=["GET","POST"])
 @require_admin
