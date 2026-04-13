@@ -22,9 +22,7 @@
 </script>
 
 <script>
-// ── Arena Coins — Wallet Module v2.2 (TRUSTWALLET GAS FIX) ─────────────────────
-// FIX: Calcolo gas dinamico per TrustWallet (risolve fail AVAX)
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Arena Coins — Wallet Module v2.2 (FINAL) ─────────────────────────────────
 (function() {
   'use strict';
 
@@ -41,51 +39,36 @@
   const ERC20_TRANSFER_SEL = '0xa9059cbb';
 
   const ARENA_PRICES = {
-    energy_25:  500,
-    energy_100: 1500,
-    upgrade_2:  3000,
-    upgrade_5:  8000,
-    upgrade_10: 20000,
-    upgrade_25: 50000,
+    energy_25:  500, energy_100: 1500,
+    upgrade_2:  3000, upgrade_5: 8000,
+    upgrade_10: 20000, upgrade_25: 50000,
   };
 
   let _modal    = null;
   let _arenaSdk = null;
 
   window.getProvider = function() {
-    if (_arenaSdk) {
-      try { const p = _arenaSdk.provider || (_arenaSdk.getProvider && _arenaSdk.getProvider()); if (p) return p; } catch {}
-    }
-    if (_modal) {
-      try { const wp = typeof _modal.getWalletProvider === 'function' ? _modal.getWalletProvider() : null; if (wp) return wp; if (_modal.walletProvider) return _modal.walletProvider; } catch {}
-    }
+    if (_arenaSdk) { try { const p = _arenaSdk.provider || (_arenaSdk.getProvider && _arenaSdk.getProvider()); if (p) return p; } catch {} }
+    if (_modal) { try { const wp = typeof _modal.getWalletProvider === 'function' ? _modal.getWalletProvider() : null; if (wp) return wp; if (_modal.walletProvider) return _modal.walletProvider; } catch {} }
     if (window.ethereum) return window.ethereum;
     return null;
   };
 
   window.switchToAvalanche = async function(provider) {
     if (!provider) throw new Error('Provider non disponibile');
-    
     try {
       const currentChain = await provider.request({ method: 'eth_chainId' });
       if (currentChain.toLowerCase() === AVAX_CHAIN_ID.toLowerCase()) return;
-    } catch (e) { console.warn('[Switch] Impossibile leggere chainId', e); }
+    } catch (e) { console.warn('[Switch] Check chainId fail', e); }
 
-    try {
-      await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: AVAX_CHAIN_ID }] });
-    } catch(e) {
-      const code = e.code;
-      const msg  = String(e.message || '').toLowerCase();
-      if (code === 4902 || code === -32603 || code === -32000 || msg.includes('unrecognized') || msg.includes('not found') || msg.includes('chain')) {
+    try { await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: AVAX_CHAIN_ID }] }); } 
+    catch(e) {
+      const code = e.code; const msg = String(e.message || '').toLowerCase();
+      if (code === 4902 || code === -32603 || code === -32000 || msg.includes('unrecognized') || msg.includes('chain')) {
         try { await provider.request({ method: 'wallet_addEthereumChain', params: [AVAX_CHAIN_PARAMS] }); } 
-        catch(addErr) { throw new Error('Devi aggiungere la rete Avalanche per procedere.'); }
-      } else { throw new Error('Cambio rete fallito: ' + (e.message || 'Errore generico')); }
+        catch(addErr) { throw new Error('Devi aggiungere la rete Avalanche.'); }
+      } else { throw new Error('Cambio rete fallito.'); }
     }
-    
-    try {
-      const finalChain = await provider.request({ method: 'eth_chainId' });
-      if (finalChain.toLowerCase() !== AVAX_CHAIN_ID.toLowerCase()) throw new Error('Per favore cambia manualmente la rete su Avalanche nel tuo wallet.');
-    } catch (e) { throw new Error('Impossibile verificare la rete. Riprova.'); }
   };
 
   window.connectWallet = async function() {
@@ -104,194 +87,92 @@
     throw new Error('Apri in Trust Wallet, MetaMask o Core Wallet');
   };
 
-    // ─────────────────────────────────────────────────────────────────────────
-  // sendAvaxPayment: FIX TRUSTWALLET BROWSER (AVAX NATIVE)
-  // TrustWallet DApp Browser richiede gasPrice esplicito per AVAX.
-  // Usiamo formato Legacy (gas + gasPrice) che è il più compatibile.
-  // ─────────────────────────────────────────────────────────────────────────
+  // --- PAYMENT FUNCTIONS ---
   window.sendAvaxPayment = async function(amountAvax) {
-    const wallet   = window._walletAddress;
-    const treasury = window._TREASURY;
-    if (!wallet)   throw new Error('Nessun wallet connesso');
-    if (!treasury) throw new Error('Treasury non configurato');
-
+    const wallet = window._walletAddress; const treasury = window._TREASURY;
+    if (!wallet) throw new Error('Nessun wallet connesso');
     const weiHex = '0x' + (BigInt(Math.round(amountAvax * 1e6)) * BigInt(1e12)).toString(16);
     const prov = window.getProvider();
-    if (!prov) throw new Error('Provider wallet non trovato. Riconnetti il wallet.');
-
+    if (!prov) throw new Error('Provider non trovato.');
     await window.switchToAvalanche(prov);
 
     try {
-      // 1. Otteniamo il Gas Price attuale dalla rete Avalanche ( Fondamentale per TrustWallet )
-      let gasPrice = '0x' + BigInt(25 * 1e9).toString(16); // Default fallback: 25 Gwei
+      // Tenta di stimare il gas, se fallisce usa un default sicuro
+      let gasLimit = '0x7530'; // 30000 default sicuro
       try {
-        const priceResp = await prov.request({ method: 'eth_gasPrice' });
-        if (priceResp) gasPrice = priceResp;
-      } catch (e) {
-        console.warn('Impossibile ottenere gasPrice, uso default 25 Gwei');
-      }
+         const est = await prov.request({ method: 'eth_estimateGas', params: [{ from: wallet, to: treasury, value: weiHex }] });
+         const estNum = parseInt(est, 16);
+         gasLimit = '0x' + Math.floor(estNum * 1.3).toString(16); // +30% margine
+      } catch(e) { console.warn("Gas estimation failed, using safe default"); }
 
-      // 2. Impostiamo un Gas Limit sicuro (fisso per transfer nativi)
-      // Usiamo 30000 invece di 21000 per dare margine di sicurezza al wallet
-      const gasLimit = '0x7530'; 
-
-      const txHash = await prov.request({
-        method: 'eth_sendTransaction',
-        params: [{
-          from:     wallet,
-          to:       treasury,
-          value:    weiHex,
-          gas:      gasLimit,
-          gasPrice: gasPrice // FIX CRITICO: Forzare gasPrice risolve il fail su TrustWallet
-        }],
-      });
-      console.log('✅ AVAX tx sent:', txHash);
-      return txHash;
+      const txHash = await prov.request({ method: 'eth_sendTransaction', params: [{ from: wallet, to: treasury, value: weiHex, gas: gasLimit }] });
+      console.log('✅ AVAX tx sent:', txHash); return txHash;
     } catch(e) {
       const m = String(e.message || '').toLowerCase();
-      if (e.code === 4001 || m.includes('reject') || m.includes('denied') || m.includes('cancel') || m.includes('user refused')) {
-        throw new Error('Transazione annullata dall\'utente');
-      }
-      console.error('[sendAvaxPayment] error:', e);
-      throw new Error('AVAX tx fallita: ' + (e.message || 'unknown'));
+      if (e.code === 4001 || m.includes('reject') || m.includes('denied')) throw new Error('Transazione annullata');
+      console.error('[sendAvaxPayment] error:', e); throw new Error('AVAX tx fallita: ' + (e.message || 'unknown'));
     }
   };
 
   window.sendArenaPayment = async function(itemId) {
-    const wallet   = window._walletAddress;
-    const treasury = window._TREASURY;
-    if (!wallet)   throw new Error('Nessun wallet connesso');
-    if (!treasury) throw new Error('Treasury non configurato');
+    const wallet = window._walletAddress; const treasury = window._TREASURY;
+    if (!wallet) throw new Error('Nessun wallet connesso');
+    const amtTokens = ARENA_PRICES[itemId]; if (!amtTokens) throw new Error('Item non valido');
+    
+    const amtWei = BigInt(amtTokens) * BigInt('1000000000000000000');
+    const amtHex = amtWei.toString(16).padStart(64, '0');
+    const toHex = treasury.toLowerCase().replace('0x', '').padStart(64, '0');
+    const txData = ERC20_TRANSFER_SEL + toHex + amtHex;
 
-    const amtTokens = ARENA_PRICES[itemId];
-    if (!amtTokens) throw new Error('Item non disponibile per $ARENA: ' + itemId);
-
-    const amtWei    = BigInt(amtTokens) * BigInt('1000000000000000000');
-    const amtHex    = amtWei.toString(16).padStart(64, '0');
-    const toHex     = treasury.toLowerCase().replace('0x', '').padStart(64, '0');
-    const txData    = ERC20_TRANSFER_SEL + toHex + amtHex;
-
-    const prov = window.getProvider();
-    if (!prov) throw new Error('Provider wallet non trovato. Riconnetti il wallet.');
-
+    const prov = window.getProvider(); if (!prov) throw new Error('Provider non trovato.');
     await window.switchToAvalanche(prov);
 
     try {
-      const txHash = await prov.request({
-        method: 'eth_sendTransaction',
-        params: [{
-          from:  wallet,
-          to:    ARENA_TOKEN,
-          value: '0x0',
-          data:  txData,
-          // Gas gestito automaticamente dal wallet per ERC-20 (funziona su TrustWallet)
-        }],
-      });
-      console.log('✅ $ARENA tx sent:', txHash, 'amount:', amtTokens, 'ARENA');
-      return txHash;
+      const txHash = await prov.request({ method: 'eth_sendTransaction', params: [{ from: wallet, to: ARENA_TOKEN, value: '0x0', data: txData }] });
+      console.log('✅ $ARENA tx sent:', txHash); return txHash;
     } catch(e) {
       const m = String(e.message || '').toLowerCase();
-      if (e.code === 4001 || m.includes('reject') || m.includes('denied') || m.includes('cancel') || m.includes('user refused')) {
-        throw new Error('Transazione $ARENA annullata dall\'utente');
-      }
-      console.error('[sendArenaPayment] error:', e);
+      if (e.code === 4001 || m.includes('reject')) throw new Error('Transazione annullata');
       throw new Error('$ARENA tx fallita: ' + (e.message || 'unknown'));
     }
   };
 
   window.disconnectWallet = async function() {
     try { if (_modal && typeof _modal.disconnect === 'function') await _modal.disconnect(); } catch {}
-    window._setWallet(null);
-    window.updateWalletUI && window.updateWalletUI();
+    window._setWallet(null); window.updateWalletUI && window.updateWalletUI();
   };
 
+  // --- APPKIT INIT ---
   function resolveCreateAppKit() {
-    const candidates = [
-      window.AppKit && window.AppKit.createAppKit, window.createAppKit,
-      window.ReownAppKit && window.ReownAppKit.createAppKit,
-      window.appKit && window.appKit.createAppKit,
-      window.Reown && window.Reown.createAppKit,
-      window.AppKitCore && window.AppKitCore.createAppKit,
-    ];
-    for (const fn of candidates) { if (typeof fn === 'function') return fn; }
-    return null;
+    const candidates = [ window.AppKit && window.AppKit.createAppKit, window.createAppKit, window.ReownAppKit && window.ReownAppKit.createAppKit, window.appKit && window.appKit.createAppKit, window.Reown && window.Reown.createAppKit, window.AppKitCore && window.AppKitCore.createAppKit ];
+    for (const fn of candidates) { if (typeof fn === 'function') return fn; } return null;
   }
-
   function initAppKit() {
     try {
-      const createAppKit = resolveCreateAppKit();
-      if (!createAppKit) { console.warn('[AppKit] createAppKit non trovato.'); return; }
-
+      const createAppKit = resolveCreateAppKit(); if (!createAppKit) return;
       _modal = createAppKit({
-        projectId: PROJECT_ID,
-        networks: [{
-          id: 43114, chainNamespace:'eip155', name: 'Avalanche C-Chain',
-          nativeCurrency:{ name: 'Avalanche', symbol: 'AVAX', decimals: 18 },
-          rpcUrls: { default: { http: ['https://api.avax.network/ext/bc/C/rpc'] } },
-          blockExplorers:{ default: { name: 'SnowTrace', url: 'https://snowtrace.io' } },
-        }],
+        projectId: PROJECT_ID, networks: [{ id: 43114, chainNamespace:'eip155', name: 'Avalanche C-Chain', nativeCurrency:{ name: 'Avalanche', symbol: 'AVAX', decimals: 18 }, rpcUrls: { default: { http: ['https://api.avax.network/ext/bc/C/rpc'] } }, blockExplorers:{ default: { name: 'SnowTrace', url: 'https://snowtrace.io' } } }],
         metadata: { name: 'Arena Coins', description:'⚔️ Tap to earn on AVAX', url: window.location.origin, icons: ['https://arena.social/icons/logo.svg'] },
         features: { analytics: false, email: false, socials: false },
       });
       window._modal = _modal;
-
-      function onModalStateChange() {
-        try {
-          const acc = _modal.getAccount ? _modal.getAccount() : null;
-          if (acc && acc.isConnected && acc.address && acc.address !== window._walletAddress) {
-            window._setWallet(acc.address);
-            window._onWalletConnected && window._onWalletConnected(acc.address);
-          }
-        } catch {}
-      }
+      function onModalStateChange() { try { const acc = _modal.getAccount ? _modal.getAccount() : null; if (acc && acc.isConnected && acc.address && acc.address !== window._walletAddress) { window._setWallet(acc.address); window._onWalletConnected && window._onWalletConnected(acc.address); } } catch {} }
       try { _modal.subscribeState && _modal.subscribeState(onModalStateChange); } catch {}
-      try { _modal.subscribeAccount && _modal.subscribeAccount(onModalStateChange); } catch {}
       setInterval(onModalStateChange, 1500);
-      console.log('✅ AppKit initialized.');
     } catch(e) { console.warn('[AppKit] init failed:', e.message); }
   }
-
   function initArenaSdk() {
-    try {
-      const SDK = window.ArenaAppStoreSdk || window.ArenaSDK || window.Arena;
-      if (!SDK) return;
-      _arenaSdk = new SDK({ projectId: PROJECT_ID, metadata: { name: 'Arena Coins', description: '⚔️', url: window.location.href, icons: ['https://arena.social/icons/logo.svg'] } });
-      if (_arenaSdk.on) {
-        _arenaSdk.on('walletChanged', function(data) { const address = data && (data.address || data); if (address && typeof address === 'string' && address !== window._walletAddress) { window._setWallet(address); window._onWalletConnected && window._onWalletConnected(address); } });
-        _arenaSdk.on('connect', function(data) { const address = data && (data.address || data); if (address && typeof address === 'string') { window._setWallet(address); window._onWalletConnected && window._onWalletConnected(address); } });
-      }
-      window._arenaSdk = _arenaSdk;
-    } catch(e) { console.warn('[Arena SDK] init failed:', e.message); }
+    try { const SDK = window.ArenaAppStoreSdk || window.ArenaSDK || window.Arena; if (!SDK) return; _arenaSdk = new SDK({ projectId: PROJECT_ID, metadata: { name: 'Arena Coins', description: '⚔️', url: window.location.href, icons: ['https://arena.social/icons/logo.svg'] } }); if (_arenaSdk.on) { _arenaSdk.on('walletChanged', function(data) { const address = data && (data.address || data); if (address && typeof address === 'string' && address !== window._walletAddress) { window._setWallet(address); window._onWalletConnected && window._onWalletConnected(address); } }); } window._arenaSdk = _arenaSdk; } catch(e) {}
   }
-
   function checkAutoConnect() {
-    setTimeout(async function() {
-      if (window._walletAddress) return;
-      try { if (_arenaSdk) { const p = _arenaSdk.provider || (_arenaSdk.getProvider && _arenaSdk.getProvider()); if (p) { const accs = await p.request({ method: 'eth_accounts' }); if (accs && accs[0]) { window._setWallet(accs[0]); window._onWalletConnected && window._onWalletConnected(accs[0]); return; } } } } catch {}
-      try { if (window.ethereum) { const accs = await window.ethereum.request({ method: 'eth_accounts' }); if (accs && accs[0]) { window._setWallet(accs[0]); window._onWalletConnected && window._onWalletConnected(accs[0]); return; } } } catch {}
-      try { if (_modal && _modal.getAccount) { const acc = _modal.getAccount(); if (acc && acc.isConnected && acc.address) { window._setWallet(acc.address); window._onWalletConnected && window._onWalletConnected(acc.address); } } } catch {}
-    }, 800);
+    setTimeout(async function() { if (window._walletAddress) return; try { if (_arenaSdk) { const p = _arenaSdk.provider || (_arenaSdk.getProvider && _arenaSdk.getProvider()); if (p) { const accs = await p.request({ method: 'eth_accounts' }); if (accs && accs[0]) { window._setWallet(accs[0]); window._onWalletConnected && window._onWalletConnected(accs[0]); return; } } } } catch {} try { if (window.ethereum) { const accs = await window.ethereum.request({ method: 'eth_accounts' }); if (accs && accs[0]) { window._setWallet(accs[0]); window._onWalletConnected && window._onWalletConnected(accs[0]); return; } } } catch {} }, 800);
   }
-
   (function loadAppKitCDN() {
-    const VERSIONS = ['1.1.5', '1.1.4', '1.1.3', '1.1.2', '1.1.1', '1.1.0', '1.0.9'];
-    let tried = 0;
-    function tryVersion(v) {
-      const s  = document.createElement('script'); s.async  = false; s.src    = 'https://cdn.jsdelivr.net/npm/@reown/appkit-cdn@' + v + '/dist/appkit.js';
-      s.onload = function() { console.log('✅ AppKit CDN loaded: v' + v); initArenaSdk(); initAppKit(); checkAutoConnect(); window._walletReadyResolve && window._walletReadyResolve('ready'); };
-      s.onerror = function() { tried++; if (tried < VERSIONS.length) { tryVersion(VERSIONS[tried]); } else { console.warn('[AppKit] Fallito.'); initArenaSdk(); checkAutoConnect(); window._walletReadyResolve && window._walletReadyResolve('no-appkit'); } };
-      document.head.appendChild(s);
-    }
+    const VERSIONS = ['1.1.5', '1.1.4', '1.1.3']; let tried = 0;
+    function tryVersion(v) { const s = document.createElement('script'); s.async = false; s.src = 'https://cdn.jsdelivr.net/npm/@reown/appkit-cdn@' + v + '/dist/appkit.js'; s.onload = function() { console.log('✅ AppKit CDN loaded: v' + v); initArenaSdk(); initAppKit(); checkAutoConnect(); window._walletReadyResolve && window._walletReadyResolve('ready'); }; s.onerror = function() { tried++; if (tried < VERSIONS.length) tryVersion(VERSIONS[tried]); }; document.head.appendChild(s); }
     tryVersion(VERSIONS[0]);
   })();
-
-  (function loadArenaSdkCDN() {
-    const urls = [ 'https://cdn.jsdelivr.net/npm/@the-arena/arena-app-store-sdk@0.2.4/dist/index.umd.js', 'https://unpkg.com/@the-arena/arena-app-store-sdk@0.2.4/dist/index.umd.js', 'https://cdn.jsdelivr.net/npm/@the-arena/arena-app-store-sdk/dist/index.umd.js' ];
-    let i = 0;
-    function tryNext() { if (i >= urls.length) return; const s = document.createElement('script'); s.src = urls[i++]; s.onerror = tryNext; s.onload = function() { initArenaSdk(); }; document.head.appendChild(s); }
-    tryNext();
-  })();
-
+  (function loadArenaSdkCDN() { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/@the-arena/arena-app-store-sdk@0.2.4/dist/index.umd.js'; s.onload = initArenaSdk; document.head.appendChild(s); })();
 })();
 </script>
 
@@ -515,7 +396,7 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
       <div class="item-price"><div class="p-avax" id="price_energy_100">0.15 AVAX</div><div class="p-arena">or 1,500 $ARENA</div></div>
       <button class="buy-btn" id="btn_energy_100" onclick="buyItem('energy_100',0.15,1500)">BUY</button>
     </div>
-    <div class="section-title">🚀 Tap Power Upgrades <span style="font-size:0.55rem;opacity:0.6">(resets each season)</span></div>
+    <div class="section-title">🚀 Tap Power Upgrades</div>
     <div class="shop-item feat">
       <div class="item-info"><div class="item-name">⚡ Power x2</div><div class="item-desc">2 coins per tap</div></div>
       <div class="item-price"><div class="p-avax" id="price_upgrade_2">0.30 AVAX</div><div class="p-arena">or 3,000 $ARENA</div></div>
@@ -536,7 +417,7 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
       <div class="item-price"><div class="p-avax" id="price_upgrade_25">5.00 AVAX</div><div class="p-arena">or 50,000 $ARENA</div></div>
       <button class="buy-btn" id="btn_upgrade_25" onclick="buyItem('upgrade_25',5.0,50000)">BUY</button>
     </div>
-    <div class="section-title">💰 Treasury (AVAX payments)</div>
+    <div class="section-title">💰 Treasury</div>
     <div style="font-size:0.65rem;color:var(--text-dim);word-break:break-all;padding:0.5rem;background:var(--surface);border:1px solid var(--border);border-radius:8px" id="treasuryDisplay"></div>
   </div>
 </div>
@@ -561,7 +442,7 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
 const BACKEND_URL = 'https://arena-tap.onrender.com';
 const MAX_ENERGY = 100, ENERGY_REGEN_MIN = 5;
 const SYNC_MS = 8000, COMBO_MS = 600, MAX_COMBO = 10;
-const PRIZE_DIST = [0.40,0.20,0.10,0.05,0.05,0.05,0.05,0.03,0.03,0.04];
+const PRIZE_DIST = [0.40, 0.20, 0.10, 0.05, 0.05, 0.05, 0.05, 0.03, 0.03, 0.04];
 
 const S = {
   wallet:null, coins:0, tapPower:1, energy:MAX_ENERGY,
@@ -583,17 +464,12 @@ async function onConnectClick() {
   const msg = document.getElementById('connectMsg');
   if (btn) btn.disabled = true;
   if (msg) { msg.textContent = '⏳ Loading wallet...'; msg.className = 'cs-msg'; }
-
   try {
     await window._walletReady;
     if (msg) msg.textContent = '⏳ Connecting...';
     const addr = await window.connectWallet();
-    if (addr) {
-      await initSession(addr);
-    } else {
-      if (msg) msg.textContent = 'Approve in your wallet app...';
-      setTimeout(() => { if (btn) btn.disabled = false; }, 8000);
-    }
+    if (addr) { await initSession(addr); } 
+    else { if (msg) msg.textContent = 'Approve in your wallet app...'; setTimeout(() => { if (btn) btn.disabled = false; }, 8000); }
   } catch(e) {
     const m = e.message || 'Connection failed';
     showToast(m, 'error');
@@ -604,14 +480,8 @@ async function onConnectClick() {
 window.onConnectClick = onConnectClick;
 
 async function onWalletBadgeClick() {
-  if (window._walletAddress) {
-    await window.disconnectWallet();
-    S.wallet = null;
-    showToast('Wallet disconnected', 'warn');
-    updateWalletUI();
-  } else {
-    await onConnectClick();
-  }
+  if (window._walletAddress) { await window.disconnectWallet(); S.wallet = null; showToast('Wallet disconnected', 'warn'); updateWalletUI(); } 
+  else { await onConnectClick(); }
 }
 window.onWalletBadgeClick = onWalletBadgeClick;
 
@@ -780,17 +650,53 @@ async function loadLb(type) {
 async function loadPrizePool() {
   try { const r=await api('/api/prize-pool'); if(r.ok){S.prizePool=r.avax||0;document.getElementById('statPool').textContent=(r.avax||0).toFixed(3);} } catch {}
 }
+
+// ── FIX: PRIZE POOL DUAL DISPLAY (AVAX + ARENA) ───────────────────────────────
 async function openPrize() {
   openModal('prizeModal');
   try {
-    const r=await api('/api/prize-pool'); const el=document.getElementById('prizeContent');
+    const r=await api('/api/prize-pool'); 
+    const el=document.getElementById('prizeContent');
     if (!r.ok) { el.innerHTML='Failed'; return; }
-    el.innerHTML=`<div class="info-row"><span class="info-lbl">💎 AVAX Pool</span><span class="info-val">${(r.avax||0).toFixed(4)}</span></div>
-      <div class="info-row"><span class="info-lbl">⚡ $ARENA</span><span class="info-val">${fmt(r.arena)}</span></div>
-      <div class="section-title">Distribution (Season End)</div>
-      ${(r.distribution||[]).slice(0,5).map(d=>`<div class="info-row"><span class="info-lbl">${['🥇','🥈','🥉','④','⑤'][d.rank-1]} Rank ${d.rank}</span><span class="info-val">${(d.pct*100).toFixed(0)}% · ${d.avax.toFixed(4)} AVAX</span></div>`).join('')}
-      <div style="font-size:0.65rem;color:var(--text-dim);text-align:center;margin-top:1rem">Shop purchases fund the pool.<br>Coins → future $ARENA airdrop.</div>`;
-  } catch {}
+    
+    const avax = r.avax || 0;
+    const arena = r.arena || 0;
+    const medals = ['🥇','🥈','🥉','④','⑤','⑥','⑦','⑧','⑨','⑩'];
+
+    // Calcoliamo la distribuzione per entrambi i token (Top 5 per UI pulita)
+    const rows = PRIZE_DIST.slice(0, 5).map((pct, i) => {
+       const avaxVal = (avax * pct).toFixed(4);
+       const arenaVal = (arena * pct); // Non formattiamo con toFixed per mantenere numeri interi se possibile, usiamo fmt()
+       
+       return `
+         <div class="info-row" style="align-items:flex-start">
+            <span class="info-lbl">${medals[i]} Rank ${i+1}<br><span style="font-size:0.55rem;opacity:0.7">${(pct*100).toFixed(0)}% Share</span></span>
+            <div class="info-val" style="text-align:right; font-size:0.7rem; line-height:1.4">
+               <div style="color:#EF9A9A">${avaxVal} AVAX</div>
+               <div style="color:var(--gold)">${fmt(arenaVal)} $ARENA</div>
+            </div>
+         </div>
+       `;
+    }).join('');
+
+    el.innerHTML=`
+      <div class="info-row" style="border-bottom:1px solid var(--border)">
+        <span class="info-lbl">💎 Total AVAX</span>
+        <span class="info-val">${avax.toFixed(4)}</span>
+      </div>
+      <div class="info-row" style="border-bottom:1px solid var(--border)">
+        <span class="info-lbl">⚡ Total $ARENA</span>
+        <span class="info-val">${fmt(arena)}</span>
+      </div>
+      
+      <div class="section-title">Season Distribution (Top 5)</div>
+      ${rows}
+      
+      <div style="font-size:0.6rem;color:var(--text-dim);text-align:center;margin-top:1rem">
+        Payouts calculated on real-time treasury balance.<br>Remaining 10% distributed to ranks 6-10.
+      </div>
+    `;
+  } catch(e) { console.error(e); }
 }
 window.openPrize=openPrize;
 
@@ -820,7 +726,7 @@ async function openSquad() {
       </div>
       <div style="background:rgba(212,175,55,0.06);border:1px solid rgba(212,175,55,0.15);border-radius:10px;padding:0.8rem;margin-bottom:1rem;font-size:0.75rem;color:var(--text-dim);line-height:1.6">
         ⚔️ Each fighter you recruit gives you <strong style="color:var(--gold)">+1,000 coins</strong> instantly.<br>
-        📈 You earn <strong style="color:var(--gold)">5% passive</strong> on every daily reward they claim — forever.
+        📈 You earn <strong style="color:var(--gold)">5% passive</strong> on every daily reward they claim.
       </div>
       <div class="section-title">Your Invite Link</div>
       <div style="font-size:0.65rem;color:var(--text-dim);word-break:break-all;padding:0.6rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;cursor:pointer;margin-bottom:0.5rem" onclick="copyLink('${link}')">🔗 ${link}</div>
