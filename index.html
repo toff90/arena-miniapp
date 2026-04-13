@@ -22,16 +22,15 @@
 </script>
 
 <script>
-// ── Arena Coins — Wallet Module v2.1 (TRUSTWALLET FIX) ───────────────────────
-// FIX: Rimozione gas fisso per compatibilità TrustWallet Avalanche
-// FIX: Controllo rete migliorato con blocco errore se switch fallisce
+// ── Arena Coins — Wallet Module v2.2 (TRUSTWALLET GAS FIX) ─────────────────────
+// FIX: Calcolo gas dinamico per TrustWallet (risolve fail AVAX)
 // ─────────────────────────────────────────────────────────────────────────────
 (function() {
   'use strict';
 
   const PROJECT_ID    = '8166c5ca3b14d2b405ba21c23f548565';
   const ARENA_TOKEN   = '0xb8d7710f7d8349a506b75dd184f05777c82dad0c';
-  const AVAX_CHAIN_ID = '0xa86a'; // 43114
+  const AVAX_CHAIN_ID = '0xa86a';
   const AVAX_CHAIN_PARAMS = {
     chainId: AVAX_CHAIN_ID,
     chainName: 'Avalanche C-Chain',
@@ -53,124 +52,50 @@
   let _modal    = null;
   let _arenaSdk = null;
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // getProvider(): Cascade per trovare il provider corretto
-  // ─────────────────────────────────────────────────────────────────────────
   window.getProvider = function() {
     if (_arenaSdk) {
-      try {
-        const p = _arenaSdk.provider || (_arenaSdk.getProvider && _arenaSdk.getProvider());
-        if (p) return p;
-      } catch {}
+      try { const p = _arenaSdk.provider || (_arenaSdk.getProvider && _arenaSdk.getProvider()); if (p) return p; } catch {}
     }
     if (_modal) {
-      try {
-        const wp = typeof _modal.getWalletProvider === 'function' ? _modal.getWalletProvider() : null;
-        if (wp) return wp;
-        if (_modal.walletProvider) return _modal.walletProvider;
-      } catch {}
+      try { const wp = typeof _modal.getWalletProvider === 'function' ? _modal.getWalletProvider() : null; if (wp) return wp; if (_modal.walletProvider) return _modal.walletProvider; } catch {}
     }
     if (window.ethereum) return window.ethereum;
     return null;
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // switchToAvalanche: Verifica e Switch rete con gestione errori rigida
-  // ─────────────────────────────────────────────────────────────────────────
   window.switchToAvalanche = async function(provider) {
     if (!provider) throw new Error('Provider non disponibile');
     
-    // 1. Verifica se siamo già sulla rete giusta
     try {
       const currentChain = await provider.request({ method: 'eth_chainId' });
-      if (currentChain.toLowerCase() === AVAX_CHAIN_ID.toLowerCase()) {
-        return; // Già su Avalanche
-      }
-    } catch (e) {
-      console.warn('[Switch] Impossibile leggere chainId', e);
-    }
+      if (currentChain.toLowerCase() === AVAX_CHAIN_ID.toLowerCase()) return;
+    } catch (e) { console.warn('[Switch] Impossibile leggere chainId', e); }
 
-    // 2. Tenta lo switch
     try {
-      await provider.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: AVAX_CHAIN_ID }],
-      });
+      await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: AVAX_CHAIN_ID }] });
     } catch(e) {
       const code = e.code;
       const msg  = String(e.message || '').toLowerCase();
-      
-      // 3. Se la rete non esiste, prova ad aggiungerla
-      if (code === 4902 || code === -32603 || code === -32000 ||
-          msg.includes('unrecognized') || msg.includes('not found') || msg.includes('chain')) {
-        
-        try {
-          await provider.request({
-            method: 'wallet_addEthereumChain',
-            params: [AVAX_CHAIN_PARAMS],
-          });
-        } catch(addErr) {
-          // FIX CRITICO: Se l'utente rifiuta o fallisce, BLOCCARE TUTTO
-          throw new Error('Devi aggiungere la rete Avalanche per procedere.');
-        }
-      } else {
-        // FIX CRITICO: Se switch fallisce, BLOCCARE TUTTO
-        throw new Error('Cambio rete fallito: ' + (e.message || 'Errore generico'));
-      }
+      if (code === 4902 || code === -32603 || code === -32000 || msg.includes('unrecognized') || msg.includes('not found') || msg.includes('chain')) {
+        try { await provider.request({ method: 'wallet_addEthereumChain', params: [AVAX_CHAIN_PARAMS] }); } 
+        catch(addErr) { throw new Error('Devi aggiungere la rete Avalanche per procedere.'); }
+      } else { throw new Error('Cambio rete fallito: ' + (e.message || 'Errore generico')); }
     }
     
-    // 4. Doppia verifica finale
     try {
       const finalChain = await provider.request({ method: 'eth_chainId' });
-      if (finalChain.toLowerCase() !== AVAX_CHAIN_ID.toLowerCase()) {
-        throw new Error('Per favore cambia manualmente la rete su Avalanche nel tuo wallet.');
-      }
-    } catch (e) {
-       throw new Error('Impossibile verificare la rete. Riprova.');
-    }
+      if (finalChain.toLowerCase() !== AVAX_CHAIN_ID.toLowerCase()) throw new Error('Per favore cambia manualmente la rete su Avalanche nel tuo wallet.');
+    } catch (e) { throw new Error('Impossibile verificare la rete. Riprova.'); }
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // connectWallet
-  // ─────────────────────────────────────────────────────────────────────────
   window.connectWallet = async function() {
-    if (_arenaSdk) {
-      try {
-        const p = _arenaSdk.provider || (_arenaSdk.getProvider && _arenaSdk.getProvider());
-        if (p) {
-          const accs = await p.request({ method: 'eth_requestAccounts' });
-          if (accs && accs[0]) { window._setWallet(accs[0]); return accs[0]; }
-        }
-      } catch(e) {
-        if (e.code === 4001) throw new Error('Connessione annullata');
-      }
-    }
-    if (window.ethereum) {
-      try {
-        const accs = await window.ethereum.request({ method: 'eth_requestAccounts' });
-        if (accs && accs[0]) { window._setWallet(accs[0]); return accs[0]; }
-      } catch(e) {
-        if (e.code === 4001) throw new Error('Connessione annullata');
-      }
-    }
+    if (_arenaSdk) { try { const p = _arenaSdk.provider || (_arenaSdk.getProvider && _arenaSdk.getProvider()); if (p) { const accs = await p.request({ method: 'eth_requestAccounts' }); if (accs && accs[0]) { window._setWallet(accs[0]); return accs[0]; } } } catch(e) { if (e.code === 4001) throw new Error('Connessione annullata'); } }
+    if (window.ethereum) { try { const accs = await window.ethereum.request({ method: 'eth_requestAccounts' }); if (accs && accs[0]) { window._setWallet(accs[0]); return accs[0]; } } catch(e) { if (e.code === 4001) throw new Error('Connessione annullata'); } }
     if (_modal) {
       await _modal.open();
       return new Promise(function(resolve, reject) {
-        const TIMEOUT_MS = 180000;
-        let resolved = false;
-        function tryResolve() {
-          if (resolved) return;
-          try {
-            const acc = _modal.getAccount ? _modal.getAccount() : null;
-            if (acc && acc.isConnected && acc.address) {
-              resolved = true;
-              window._setWallet(acc.address);
-              clearInterval(poll);
-              clearTimeout(timeout);
-              resolve(acc.address);
-            }
-          } catch {}
-        }
+        const TIMEOUT_MS = 180000; let resolved = false;
+        function tryResolve() { if (resolved) return; try { const acc = _modal.getAccount ? _modal.getAccount() : null; if (acc && acc.isConnected && acc.address) { resolved = true; window._setWallet(acc.address); clearInterval(poll); clearTimeout(timeout); resolve(acc.address); } } catch {} }
         const poll = setInterval(tryResolve, 500);
         try { const sub = _modal.subscribeState || _modal.subscribeAccount; if (sub) sub.call(_modal, tryResolve); } catch {}
         const timeout = setTimeout(function() { if (!resolved) { resolved = true; clearInterval(poll); resolve(null); } }, TIMEOUT_MS);
@@ -180,7 +105,9 @@
   };
 
   // ─────────────────────────────────────────────────────────────────────────
-  // sendAvaxPayment: FIX TRUSTWALLET - RIMOSSO GAS FISSO
+  // sendAvaxPayment: FIX TRUSTWALLET DINAMICO
+  // Calcoliamo il gas con eth_estimateGas e aggiungiamo un margine di sicurezza.
+  // Questo è l'unico modo per far funzionare TrustWallet su Avalanche.
   // ─────────────────────────────────────────────────────────────────────────
   window.sendAvaxPayment = async function(amountAvax) {
     const wallet   = window._walletAddress;
@@ -195,13 +122,31 @@
     await window.switchToAvalanche(prov);
 
     try {
+      // 1. Stima il gas necessario
+      let gasLimit = '0x5208'; // Default 21000
+      try {
+        const estimated = await prov.request({
+          method: 'eth_estimateGas',
+          params: [{ from: wallet, to: treasury, value: weiHex }]
+        });
+        // 2. Aggiungi un margine di sicurezza del 20% (TrustWallet a volte sottostima)
+        const estNum = parseInt(estimated, 16);
+        const safeGas = Math.floor(estNum * 1.2);
+        gasLimit = '0x' + safeGas.toString(16);
+        console.log('Gas stimato:', estNum, 'Gas sicuro:', safeGas);
+      } catch (gasErr) {
+        console.warn('Stima gas fallita, uso default 21000:', gasErr);
+        // Se la stima fallisce (es. fondo insufficiente), usiamo il default
+        // ma il wallet mostrerà l'errore reale al momento dell'invio.
+      }
+
       const txHash = await prov.request({
         method: 'eth_sendTransaction',
         params: [{
           from:  wallet,
           to:    treasury,
           value: weiHex,
-          // FIX: RIMOSSO gas: '0x5208'. TrustWallet calcolerà il gas corretto automaticamente.
+          gas:   gasLimit // Gas calcolato dinamicamente
         }],
       });
       console.log('✅ AVAX tx sent:', txHash);
@@ -216,9 +161,6 @@
     }
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // sendArenaPayment: FIX TRUSTWALLET - RIMOSSO GAS FISSO
-  // ─────────────────────────────────────────────────────────────────────────
   window.sendArenaPayment = async function(itemId) {
     const wallet   = window._walletAddress;
     const treasury = window._TREASURY;
@@ -246,7 +188,7 @@
           to:    ARENA_TOKEN,
           value: '0x0',
           data:  txData,
-          // FIX: RIMOSSO gas: '0x10000'. TrustWallet calcolerà il gas necessario per ERC20.
+          // Gas gestito automaticamente dal wallet per ERC-20 (funziona su TrustWallet)
         }],
       });
       console.log('✅ $ARENA tx sent:', txHash, 'amount:', amtTokens, 'ARENA');
