@@ -97,12 +97,11 @@
     await window.switchToAvalanche(prov);
 
     try {
-      // Tenta di stimare il gas, se fallisce usa un default sicuro
-      let gasLimit = '0x7530'; // 30000 default sicuro
+      let gasLimit = '0x7530'; 
       try {
          const est = await prov.request({ method: 'eth_estimateGas', params: [{ from: wallet, to: treasury, value: weiHex }] });
          const estNum = parseInt(est, 16);
-         gasLimit = '0x' + Math.floor(estNum * 1.3).toString(16); // +30% margine
+         gasLimit = '0x' + Math.floor(estNum * 1.3).toString(16); 
       } catch(e) { console.warn("Gas estimation failed, using safe default"); }
 
       const txHash = await prov.request({ method: 'eth_sendTransaction', params: [{ from: wallet, to: treasury, value: weiHex, gas: gasLimit }] });
@@ -293,6 +292,10 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
 .ref-bar:active{background:rgba(212,175,55,0.15);}
 .ref-bar-left{font-size:0.65rem;color:var(--text-dim);letter-spacing:0.5px;flex:1;}
 .ref-bar-right{font-size:0.65rem;font-weight:700;color:var(--gold);letter-spacing:2px;white-space:nowrap;}
+
+/* Username Modal Specific Styles */
+.input-field{width:100%;padding:0.8rem 1rem;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:'Rajdhani',sans-serif;font-size:1rem;outline:none;margin-bottom:1rem;text-align:center;}
+.input-field:focus{border-color:var(--gold);}
 </style>
 </head>
 <body>
@@ -360,6 +363,17 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
 </div>
 <div id="toast"></div>
 
+<!-- USERNAME MODAL -->
+<div class="modal-overlay" id="usernameModal">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-title">⚔️ ENTER THE ARENA</div>
+    <div class="modal-sub">Choose your Gladiator Name</div>
+    <input type="text" id="usernameInput" class="input-field" placeholder="Your name..." maxlength="20">
+    <button class="cs-btn" style="max-width:100%;margin-top:0.5rem" onclick="submitUsername()">SET NAME & ENTER</button>
+  </div>
+</div>
+
+<!-- OTHER MODALS -->
 <div class="modal-overlay" id="lbModal">
   <div class="modal">
     <button class="modal-close" onclick="closeModal('lbModal')">✕</button>
@@ -378,13 +392,11 @@ body{background:var(--bg);color:var(--text);font-family:'Rajdhani',sans-serif;us
     <button class="modal-close" onclick="closeModal('shopModal')">✕</button>
     <div class="modal-title">ARENA SHOP</div>
     <div class="wallet-bar" id="shopWalletBar"><span>🔗 No wallet connected</span><button class="wc-btn" onclick="onConnectClick()">Connect</button></div>
-
     <div style="display:flex;gap:0.4rem;margin-bottom:1rem">
       <button id="payAvax" onclick="setPayMode('avax')" style="flex:1;padding:0.55rem;background:linear-gradient(135deg,rgba(232,65,66,0.2),rgba(232,65,66,0.1));border:1px solid rgba(232,65,66,0.5);border-radius:8px;color:#EF9A9A;font-family:'Rajdhani',sans-serif;font-size:0.8rem;font-weight:700;cursor:pointer;letter-spacing:1px">💎 AVAX</button>
       <button id="payArena" onclick="setPayMode('arena')" style="flex:1;padding:0.55rem;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text-dim);font-family:'Rajdhani',sans-serif;font-size:0.8rem;font-weight:700;cursor:pointer;letter-spacing:1px">⚔️ $ARENA</button>
     </div>
     <div class="pay-msg" id="shopPayMsg"></div>
-
     <div class="section-title">⚡ Energy Refills</div>
     <div class="shop-item">
       <div class="item-info"><div class="item-name">⚡ Small Refill</div><div class="item-desc">+25 Energy instantly</div></div>
@@ -468,7 +480,18 @@ async function onConnectClick() {
     await window._walletReady;
     if (msg) msg.textContent = '⏳ Connecting...';
     const addr = await window.connectWallet();
-    if (addr) { await initSession(addr); } 
+    if (addr) { 
+      // SECURITY: Request Signature
+      const msgEl = document.getElementById('connectMsg');
+      try {
+        if(msgEl) msgEl.textContent = '✍️ Sign message in wallet...';
+        const verified = await signLogin(addr);
+        if(!verified) throw new Error("Signature failed");
+        await initSession(addr); 
+      } catch(e) {
+         throw new Error("Login rejected or failed");
+      }
+    } 
     else { if (msg) msg.textContent = 'Approve in your wallet app...'; setTimeout(() => { if (btn) btn.disabled = false; }, 8000); }
   } catch(e) {
     const m = e.message || 'Connection failed';
@@ -478,6 +501,30 @@ async function onConnectClick() {
   }
 }
 window.onConnectClick = onConnectClick;
+
+async function signLogin(address) {
+  const provider = window.getProvider();
+  if (!provider) throw new Error('No provider');
+  
+  const message = `Sign this message to verify ownership of ${address}.\n\nNonce: ${Date.now()}`;
+  try {
+    const signature = await provider.request({
+      method: 'personal_sign',
+      params: [message, address]
+    });
+    
+    const r = await api('/api/auth/verify', {
+      wallet_address: address,
+      signature: signature,
+      message: message
+    });
+    
+    return r.ok && r.verified;
+  } catch(e) {
+    console.error("Sign error", e);
+    return false;
+  }
+}
 
 async function onWalletBadgeClick() {
   if (window._walletAddress) { await window.disconnectWallet(); S.wallet = null; showToast('Wallet disconnected', 'warn'); updateWalletUI(); } 
@@ -511,25 +558,21 @@ async function initSession(address) {
     S.streak      = u.streak      || 0;
     S.seasonCoins = u.season_coins|| 0;
 
-    if (res.is_new) showToast('⚔️ Welcome! +500 coins bonus!', 'success');
     window._currentSession = address;
+    
     if (res.is_new && ref && ref !== address) {
       setTimeout(() => showToast('👥 Referral bonus applied! Your recruiter got +1,000 coins', 'success'), 2000);
     }
-    if (res.is_new) {
-      setTimeout(() => {
-        const name = prompt('⚔️ Enter your Arena name (shown in leaderboard):');
-        if (name && name.trim() && name.trim() !== 'Gladiator') {
-          const n = name.trim().slice(0, 20);
-          api('/api/user/register', { wallet_address: address, username: n, first_name: n }).catch(()=>{});
-          S.displayName = n;
-        }
-      }, 1500);
-    }
-
+    
     loadPrizePool(); loadRank();
     startRegenLoop(); startSyncLoop();
     renderGame(); showApp();
+    
+    // Show Username Modal ONLY if new or default name
+    if (res.is_new || (u.username === 'Gladiator' || u.username === 'Anon' || !u.username)) {
+       openModal('usernameModal');
+    }
+
     if (res.is_new) spawnParticles(window.innerWidth/2, window.innerHeight/3, 40);
   } catch(e) {
     showToast(e.message || 'Login failed', 'error');
@@ -539,6 +582,26 @@ async function initSession(address) {
     document.getElementById('connectScreen').classList.add('show');
   }
 }
+
+async function submitUsername() {
+  const input = document.getElementById('usernameInput');
+  const name = input.value.trim().slice(0, 20);
+  if (!name) { showToast('Enter a valid name', 'error'); return; }
+  
+  try {
+     const r = await api('/api/user/register', { wallet_address: S.wallet, username: name, first_name: name });
+     if(r.ok) {
+        S.displayName = name;
+        closeModal('usernameModal');
+        showToast(`⚔️ Welcome, ${name}!`, 'success');
+     } else {
+        showToast(r.error || 'Error saving name', 'error');
+     }
+  } catch(e) {
+     showToast('Network error', 'error');
+  }
+}
+window.submitUsername = submitUsername;
 
 function calcEnergy(saved, lastISO) {
   if (!lastISO) return saved ?? MAX_ENERGY;
@@ -651,7 +714,6 @@ async function loadPrizePool() {
   try { const r=await api('/api/prize-pool'); if(r.ok){S.prizePool=r.avax||0;document.getElementById('statPool').textContent=(r.avax||0).toFixed(3);} } catch {}
 }
 
-// ── FIX: PRIZE POOL DUAL DISPLAY (AVAX + ARENA) ───────────────────────────────
 async function openPrize() {
   openModal('prizeModal');
   try {
@@ -662,12 +724,9 @@ async function openPrize() {
     const avax = r.avax || 0;
     const arena = r.arena || 0;
     const medals = ['🥇','🥈','🥉','④','⑤','⑥','⑦','⑧','⑨','⑩'];
-
-    // Calcoliamo la distribuzione per entrambi i token (Top 5 per UI pulita)
     const rows = PRIZE_DIST.slice(0, 5).map((pct, i) => {
        const avaxVal = (avax * pct).toFixed(4);
-       const arenaVal = (arena * pct); // Non formattiamo con toFixed per mantenere numeri interi se possibile, usiamo fmt()
-       
+       const arenaVal = (arena * pct);
        return `
          <div class="info-row" style="align-items:flex-start">
             <span class="info-lbl">${medals[i]} Rank ${i+1}<br><span style="font-size:0.55rem;opacity:0.7">${(pct*100).toFixed(0)}% Share</span></span>
@@ -688,10 +747,8 @@ async function openPrize() {
         <span class="info-lbl">⚡ Total $ARENA</span>
         <span class="info-val">${fmt(arena)}</span>
       </div>
-      
       <div class="section-title">Season Distribution (Top 5)</div>
       ${rows}
-      
       <div style="font-size:0.6rem;color:var(--text-dim);text-align:center;margin-top:1rem">
         Payouts calculated on real-time treasury balance.<br>Remaining 10% distributed to ranks 6-10.
       </div>
