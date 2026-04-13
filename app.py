@@ -1,11 +1,11 @@
 """
-🔥 Arena MiniApp API v2.2 — Dynamic On-Chain Prize Pool
+🔥 Arena MiniApp API v2.3 — Fixed Admin & Dates
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Fixes vs v2.1:
-  - Prize Pool now reads REAL on-chain balance (AVAX + $ARENA).
-  - No more "frozen" pool if funds are moved out of treasury.
-  - Added root route '/' for UptimeRobot health checks.
-  - Zero new dependencies (uses native requests for RPC calls).
+Fixes vs v2.2:
+  - Added missing endpoints: /api/admin/users, /api/admin/sprint, /api/admin/end-sprint, /api/admin/ban-user.
+  - Fixed "Season started" logic: Seasons/Sprints are now time-aware.
+  - Fixed "Endpoint not found" errors on Admin Panel buttons.
+  - Status endpoint now returns history for Seasons and Sprints.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -127,17 +127,30 @@ def require_admin(f):
         return f(*args, **kwargs)
     return decorated
 
+# ─── Time Helpers for Season/Sprint ───────────────────────────────────────────
+
+def is_timestamp_active(iso_str_start, iso_str_end):
+    """Checks if current time is between start and end."""
+    if not iso_str_start or not iso_str_end:
+        return False
+    now = datetime.datetime.now(datetime.timezone.utc)
+    try:
+        start = datetime.datetime.fromisoformat(iso_str_start.replace("Z", "+00:00"))
+        end = datetime.datetime.fromisoformat(iso_str_end.replace("Z", "+00:00"))
+        return start <= now <= end
+    except:
+        return False
+
 # ─── Blockchain Helpers (Requests Only) ────────────────────────────────────────
 
 def get_onchain_balance(address: str) -> tuple[float, float]:
     """
     Returns (avax_balance, arena_balance) by querying the RPC directly.
-    AVAX is native balance. ARENA is ERC-20 balanceOf.
     """
     avax_bal = 0.0
     arena_bal = 0.0
     
-    # 1. Get AVAX Balance (eth_getBalance)
+    # 1. Get AVAX Balance
     try:
         resp = req.post(AVAX_RPC, json={
             "jsonrpc": "2.0", "method": "eth_getBalance",
@@ -149,10 +162,8 @@ def get_onchain_balance(address: str) -> tuple[float, float]:
     except Exception as e:
         logger.error(f"RPC AVAX balance error: {e}")
 
-    # 2. Get $ARENA Balance (eth_call -> balanceOf)
+    # 2. Get $ARENA Balance
     try:
-        # Encode data: balanceOf(address)
-        # Sig: 0x70a08231 + padded address (32 bytes)
         padded_addr = "000000000000000000000000" + address[2:].lower()
         data = f"{BALANCEOF_SIG}{padded_addr}"
         
@@ -172,13 +183,12 @@ def get_onchain_balance(address: str) -> tuple[float, float]:
 
 @app.route("/")
 def index():
-    """Root route for UptimeRobot checks."""
     return "⚔️ Arena MiniApp API is Live", 200
 
 @app.route("/health")
 def health():
     return jsonify({
-        "status":  "ok", "service": "arena-api", "version": "2.2",
+        "status":  "ok", "service": "arena-api", "version": "2.3",
         "supabase": bool(SUPABASE_URL and SUPABASE_KEY),
         "treasury": bool(TREASURY_ADDR),
     }), 200
@@ -213,7 +223,7 @@ def register_user():
 
         new_user = {
             "wallet_address": wallet, "username": username, "first_name": first_name or "Gladiator",
-            "coins": 500, "season_coins": 500, "tap_power": 1, "referral_count": 0,
+            "coins": 500, "season_coins": 500, "sprint_coins": 0, "tap_power": 1, "referral_count": 0,
             "streak": 0, "energy": 100, "last_energy_update": now_iso(),
         }
         if referral and referral != wallet:
@@ -242,11 +252,15 @@ def get_user(wallet: str):
 
 @app.route("/api/tap", methods=["POST"])
 def record_taps():
+    """
+    Updated Tap Logic: Checks if Season/Sprint is actually ACTIVE based on time.
+    """
     try:
         data   = request.get_json(force=True) or {}
         wallet = normalize_address(data.get("wallet_address", ""))
         taps   = int(data.get("taps", 0))
         coins  = int(data.get("coins_earned", 0))
+        
         if not wallet: return jsonify({"ok": False, "error": "Missing wallet_address"}), 400
         if taps <= 0 or coins <= 0: return jsonify({"ok": False, "error": "Nothing to record"}), 400
         if coins > taps * 25: return jsonify({"ok": False, "error": "Suspicious amount"}), 400
@@ -254,16 +268,52 @@ def record_taps():
         user = get_user_by_wallet(wallet)
         if not user: return jsonify({"ok": False, "error": "User not found"}), 404
 
+        # Calculate new balances
         new_coins  = user.get("coins", 0) + coins
-        new_season = user.get("season_coins", 0) + coins
-        new_sprint = user.get("sprint_coins", 0) + coins
         new_energy = max(0, user.get("energy", 100) - taps)
+        
+        # Check Time-Based Active Status
+        new_season = user.get("season_coins", 0)
+        new_sprint = user.get("sprint_coins", 0)
 
+        # Find active season (Time check)
+        seasons = sb_get("seasons", {"is_active": "eq.true"})
+        active_season = None
+        for s in seasons:
+            if is_timestamp_active(s.get("starts_at"), s.get("ends_at")):
+                active_season = s
+                break
+        
+        if active_season:
+            new_season += coins
+
+        # Find active sprint (Time check)
+        sprints = sb_get("sprints", {"is_active": "eq.true"})
+        active_sprint = None
+        for sp in sprints:
+            if is_timestamp_active(sp.get("starts_at"), sp.get("ends_at")):
+                active_sprint = sp
+                break
+
+        if active_sprint:
+            new_sprint += coins
+
+        # Update DB
         sb_patch("users", {"wallet_address": f"eq.{wallet}"}, {
-            "coins": new_coins, "season_coins": new_season, "sprint_coins": new_sprint,
-            "energy": new_energy, "last_energy_update": now_iso(),
+            "coins": new_coins, 
+            "season_coins": new_season, 
+            "sprint_coins": new_sprint,
+            "energy": new_energy, 
+            "last_energy_update": now_iso(),
         })
-        return jsonify({"ok": True, "coins": new_coins, "season_coins": new_season, "energy": new_energy})
+        
+        return jsonify({
+            "ok": True, 
+            "coins": new_coins, 
+            "season_coins": new_season, 
+            "sprint_coins": new_sprint, 
+            "energy": new_energy
+        })
     except Exception as e:
         logger.error(f"record_taps: {e}", exc_info=True)
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -323,7 +373,6 @@ def leaderboard():
             "order": f"{order_col}.desc", "limit": str(limit)
         })
         entries = sorted(rows, key=lambda x: x.get(order_col, 0), reverse=True)
-        # Use real-time pool for context
         pool_avax, _ = get_onchain_balance(TREASURY_ADDR)
         return jsonify({"ok": True, "entries": entries, "prize_pool_avax": pool_avax, "type": lb_type})
     except Exception as e:
@@ -331,20 +380,10 @@ def leaderboard():
 
 @app.route("/api/prize-pool", methods=["GET"])
 def prize_pool():
-    """
-    LIVE ON-CHAIN DATA.
-    Queries the Treasury wallet balance for AVAX and $ARENA.
-    """
     try:
         avax_bal, arena_bal = get_onchain_balance(TREASURY_ADDR)
-        
         dist = [{"rank": i+1, "pct": p, "avax": round(avax_bal*p, 4)} for i, p in enumerate(PRIZE_DIST)]
-        return jsonify({
-            "ok": True, 
-            "avax": avax_bal, 
-            "arena": arena_bal, 
-            "distribution": dist
-        })
+        return jsonify({"ok": True, "avax": avax_bal, "arena": arena_bal, "distribution": dist})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -366,7 +405,6 @@ def squad_info(wallet: str):
 
 @app.route("/api/verify-payment", methods=["POST"])
 def verify_payment():
-    """Verify AVAX native transfer."""
     try:
         data    = request.get_json(force=True) or {}
         tx_hash = data.get("tx_hash", "").strip()
@@ -396,8 +434,6 @@ def verify_payment():
         if not user: return jsonify({"ok": False, "error": "User not found"}), 404
 
         sb_insert("payments", {"wallet_address": wallet, "tx_hash": tx_hash, "amount_avax": avax_price, "item": item_id, "verified": True})
-        # Note: We don't need to _sync_prize_pool in DB anymore because /api/prize-pool reads live balance.
-        # However, keeping a record is good.
 
         if action == "energy":
             new_energy = min(user.get("energy", 0) + value, 100)
@@ -414,7 +450,6 @@ def verify_payment():
 
 @app.route("/api/verify-arena-payment", methods=["POST"])
 def verify_arena_payment():
-    """Verify $ARENA ERC-20 transfer."""
     TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
     ARENA_PRICES = {
         "energy_25": 500, "energy_100": 1500, "upgrade_2": 3000, "upgrade_5": 8000,
@@ -483,14 +518,40 @@ def verify_arena_payment():
 @require_admin
 def admin_status():
     try:
-        # Use on-chain balances for status too
         avax, arena = get_onchain_balance(TREASURY_ADDR)
+        
+        # Fetch history
+        seasons = sb_get("seasons", {"order": "id.desc", "limit": "10"})
+        sprints = sb_get("sprints", {"order": "id.desc", "limit": "10"})
+        
         return jsonify({
             "ok": True, 
             "prize_pool_avax": avax, 
             "prize_pool_arena": arena,
-            "users_count": len(sb_get("users", {"select": "id"}))
+            "users_count": len(sb_get("users", {"select": "id"})),
+            "seasons": seasons,
+            "sprints": sprints
         })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route("/api/admin/users", methods=["GET"])
+@require_admin
+def admin_users():
+    try:
+        order = request.args.get("order", "coins")
+        limit = request.args.get("limit", "50")
+        
+        # Whitelist allowed columns
+        col_map = {"coins": "coins", "season_coins": "season_coins", "created_at": "created_at"}
+        order_col = col_map.get(order, "coins")
+        
+        users = sb_get("users", {
+            "select": "wallet_address,username,first_name,coins,season_coins,sprint_coins,tap_power,energy,streak,referral_count",
+            "order": f"{order_col}.desc",
+            "limit": limit
+        })
+        return jsonify({"ok": True, "count": len(users), "users": users})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -501,16 +562,97 @@ def new_season():
         data = request.get_json(force=True) or {}
         season_name = data.get("season_name") or f"Season {datetime.datetime.now().strftime('%B %Y')}"
         reset_power = data.get("reset_tap_power", True)
-
-        # Payout logic (omitted for brevity, assume existing logic works)
-        # ...
+        prize_desc  = data.get("prize_description", "")
         
-        # Reset DB counters
+        # Handle Dates
+        starts_at = data.get("starts_at") # ISO string
+        ends_at   = data.get("ends_at")   # ISO string
+        
+        # 1. Deactivate old seasons
+        sb_patch("seasons", {"is_active": "eq.true"}, {"is_active": False})
+        
+        # 2. Create new season record
+        new_season_data = {
+            "name": season_name,
+            "prize_description": prize_desc,
+            "starts_at": starts_at,
+            "ends_at": ends_at,
+            "is_active": True
+        }
+        inserted, err = sb_insert("seasons", new_season_data)
+        if err: return jsonify({"ok": False, "error": f"Failed to create season: {err}"}), 500
+
+        # 3. Reset User Data
         reset_data = {"season_coins": 0, "sprint_coins": 0}
         if reset_power: reset_data["tap_power"] = 1
-        req.patch(f"{SUPABASE_URL}/rest/v1/users", headers={**HEADERS, "Prefer": "return=minimal"}, json=reset_data, timeout=30)
+        
+        # Update all users (using id > 0 to target all)
+        sb_patch("users", {"id": "gt.0"}, reset_data)
 
-        return jsonify({"ok": True, "message": "Season reset triggered"})
+        return jsonify({"ok": True, "message": "Season reset triggered", "ends_at": ends_at})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route("/api/admin/sprint", methods=["POST"])
+@require_admin
+def new_sprint():
+    try:
+        data = request.get_json(force=True) or {}
+        sprint_name = data.get("sprint_name", "Arena Sprint")
+        prize_desc  = data.get("prize_description", "")
+        starts_at   = data.get("starts_at")
+        ends_at     = data.get("ends_at")
+        
+        # 1. Deactivate old sprints
+        sb_patch("sprints", {"is_active": "eq.true"}, {"is_active": False})
+        
+        # 2. Create new sprint
+        new_sprint_data = {
+            "name": sprint_name,
+            "prize_description": prize_desc,
+            "starts_at": starts_at,
+            "ends_at": ends_at,
+            "is_active": True
+        }
+        inserted, err = sb_insert("sprints", new_sprint_data)
+        if err: return jsonify({"ok": False, "error": f"Failed to create sprint: {err}"}), 500
+        
+        # 3. Reset Sprint Coins for all users
+        sb_patch("users", {"id": "gt.0"}, {"sprint_coins": 0})
+
+        return jsonify({"ok": True, "message": "Sprint started", "ends_at": ends_at, "sprint_name": sprint_name})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route("/api/admin/end-sprint", methods=["POST"])
+@require_admin
+def end_sprint():
+    try:
+        # Find active sprint
+        active = sb_get("sprints", {"is_active": "eq.true"})
+        if active:
+            sid = active[0]["id"]
+            sb_patch("sprints", {"id": f"eq.{sid}"}, {"is_active": False, "ends_at": now_iso()})
+            return jsonify({"ok": True})
+        return jsonify({"ok": False, "error": "No active sprint"}), 400
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+@app.route("/api/admin/ban-user", methods=["POST"])
+@require_admin
+def ban_user():
+    try:
+        data = request.get_json(force=True) or {}
+        wallet = normalize_address(data.get("wallet_address", ""))
+        if not wallet: return jsonify({"ok": False, "error": "Wallet required"}), 400
+        
+        user = get_user_by_wallet(wallet)
+        if not user: return jsonify({"ok": False, "error": "User not found"}), 404
+        
+        sb_patch("users", {"wallet_address": f"eq.{wallet}"}, {
+            "coins": 0, "season_coins": 0, "sprint_coins": 0, "tap_power": 1, "energy": 0
+        })
+        return jsonify({"ok": True, "banned": wallet})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -521,5 +663,5 @@ def not_found(e): return jsonify({"ok": False, "error": "Endpoint not found"}), 
 
 if __name__ == "__main__":
     port  = int(os.environ.get("PORT", 10000))
-    logger.info(f"🔥 Arena API v2.2 starting on :{port}")
+    logger.info(f"🔥 Arena API v2.3 starting on :{port}")
     app.run(host="0.0.0.0", port=port)
