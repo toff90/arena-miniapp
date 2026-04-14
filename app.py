@@ -192,6 +192,7 @@ def register_user():
             "coins": 500, "season_coins": 500, "sprint_coins": 0, 
             "tap_power": 1, "referral_count": 0, "streak": 0, 
             "energy": MAX_ENERGY, "last_energy_update": now_iso()
+            "referred_by": ref if ref and ref != wallet else None
         }
         
         created, err = sb_insert("users", new_u)
