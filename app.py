@@ -1,11 +1,10 @@
 """
-🔥 Arena MiniApp API v2.7 — Combo Support & UX Polish
+🔥 Arena MiniApp API v2.8 — Final Stable
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Fixes:
-  - /health endpoint added (fixes 404 UptimeRobot).
-  - Combo x10 Logic Restored: Server validates max multiplier.
-  - "Smart Energy": Syncs energy server-side but accepts client taps to prevent lag friction.
-  - Race condition fix on registration.
+  - Restored Admin Panel serving (fixes 404 on /admin).
+  - Combo x10 Logic Safe.
+  - Energy Sync & Lag protection.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -38,7 +37,7 @@ ARENA_TOKEN_ADDR    = "0xb8d7710f7d8349a506b75dd184f05777c82dad0c"
 BALANCEOF_SIG       = "0x70a08231"
 MAX_ENERGY          = 100
 ENERGY_REGEN_MIN    = 5
-MAX_COMBO           = 10  # Moltiplicatore massimo consentito
+MAX_COMBO           = 10
 
 HEADERS = {
     "apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -85,7 +84,6 @@ def sb_patch(table, params, data):
 def normalize_address(addr): return (addr or "").strip().lower()
 
 def calc_energy_regen(saved, last_iso):
-    """Calcola l'energia attuale basandosi sul tempo trascorso."""
     if not last_iso: return saved or MAX_ENERGY
     try:
         last = datetime.datetime.fromisoformat(last_iso.replace("Z", "+00:00"))
@@ -99,7 +97,6 @@ def get_user_by_wallet(wallet):
     rows = sb_get("users", {"wallet_address": f"eq.{normalize_address(wallet)}"})
     if not rows: return None
     u = rows[0]
-    # Aggiorna l'energia lato server prima di restituire l'utente
     u["energy"] = calc_energy_regen(u.get("energy", 0), u.get("last_energy_update"))
     return u
 
@@ -145,12 +142,18 @@ def get_onchain_balance(address):
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @app.route("/")
-def index(): return "⚔️ Arena API v2.7", 200
+def index(): return "⚔️ Arena API v2.8", 200
 
 @app.route("/health")
 def health():
-    """Health check per UptimeRobot."""
-    return jsonify({"status": "ok", "version": "2.7"}), 200
+    return jsonify({"status": "ok", "version": "2.8"}), 200
+
+# FIX: Aggiunto serve_admin per risolvere 404 Admin Panel
+@app.route("/admin")
+@app.route("/admin.html")
+def serve_admin():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    return send_from_directory(base_dir, "admin.html")
 
 @app.route("/api/auth/verify", methods=["POST"])
 def auth_verify():
@@ -192,7 +195,7 @@ def register_user():
         }
         
         created, err = sb_insert("users", new_u)
-        if err and "23505" in str(err): # Race condition fix
+        if err and "23505" in str(err):
             user = get_user_by_wallet(wallet)
             return jsonify({"ok":True, "user":user, "is_new":False})
         if err: return jsonify({"ok":False, "error":str(err)[:100]}), 500
@@ -208,13 +211,6 @@ def register_user():
 
 @app.route("/api/tap", methods=["POST"])
 def record_taps():
-    """
-    Combo-Safe Logic:
-    1. Server calcola l'energia reale rigenerata.
-    2. Accetta il valore 'coins_earned' dal frontend (che include le combo x10).
-    3. Valida che le monete non superino il massimo teorico (taps * power * 10).
-    4. Se l'utente ha poca energia, usa quella rimanente senza bloccare.
-    """
     try:
         d = request.json
         wallet = normalize_address(d.get("wallet_address",""))
@@ -224,32 +220,20 @@ def record_taps():
         if not wallet: return jsonify({"ok":False, "error":"Missing wallet"}), 400
         if taps_sent <= 0: return jsonify({"ok":False, "error":"Nothing to record"}), 400
 
-        user = get_user_by_wallet(wallet) # Calcola energia reale
+        user = get_user_by_wallet(wallet)
         if not user: return jsonify({"ok":False, "error":"User not found"}), 404
 
         current_energy = user.get("energy", 0)
         tap_power = user.get("tap_power", 1)
 
-        # 1. Calcola massimo teorico consentito (Anti-Cheat)
-        # Massimo consentito: numero tap * potenza * combo massima (10)
         max_valid_coins = taps_sent * tap_power * MAX_COMBO
-        
-        # 2. Decide quali monete registrare
-        # Se il client dichiara più del consentito, taglia al massimo consentito
         final_coins = min(client_coins, max_valid_coins)
-
-        # 3. Calcola consumo energetico reale
-        # Se il client ha usato combo x10, consuma energia proporzionalmente?
-        # No, in questo gioco 1 tap = 1 energia, ma moltiplica le monete.
-        # Quindi i tap inviati corrispondono all'energia usata.
         
         actual_taps = min(taps_sent, current_energy)
         
         if actual_taps <= 0:
              return jsonify({"ok":True, "coins":user["coins"], "energy":current_energy, "earned":0})
 
-        # Ricalcolo finale per sicurezza: se l'energia è finita, ridimensioniamo le monete guadagnate
-        # Rapporto tra quello che poteva fare (actual_taps) e quello che ha dichiarato (taps_sent)
         if actual_taps < taps_sent:
              ratio = actual_taps / taps_sent
              final_coins = int(final_coins * ratio)
@@ -339,7 +323,7 @@ def squad_info(wallet):
         return jsonify({"ok":True, "members":mems, "member_count":len(mems), "total_coins":total, "passive_5pct":int(total*0.05), "referral_code":w})
     except Exception as e: return jsonify({"ok":False, "error":str(e)}), 500
 
-# --- PAYMENT & ADMIN ENDPOINTS (Inalterati) ---
+# --- PAYMENT & ADMIN ENDPOINTS ---
 
 @app.route("/api/verify-payment", methods=["POST"])
 def verify_payment():
