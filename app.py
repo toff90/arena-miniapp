@@ -1,10 +1,11 @@
 """
-🔥 Arena MiniApp API v2.8 — Final Stable
+🔥 Arena MiniApp API v2.9 — Final Release
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Fixes:
-  - Restored Admin Panel serving (fixes 404 on /admin).
-  - Combo x10 Logic Safe.
-  - Energy Sync & Lag protection.
+Fixes vs v2.8:
+  - FIXED Referral System: Added 'referred_by' field saving.
+  - Admin Panel Serving Restored.
+  - Combo x10 + Upgrades Logic Safe.
+  - Energy Sync & Lag Protection.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
@@ -142,13 +143,12 @@ def get_onchain_balance(address):
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @app.route("/")
-def index(): return "⚔️ Arena API v2.8", 200
+def index(): return "⚔️ Arena API v2.9", 200
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "version": "2.8"}), 200
+    return jsonify({"status": "ok", "version": "2.9"}), 200
 
-# FIX: Aggiunto serve_admin per risolvere 404 Admin Panel
 @app.route("/admin")
 @app.route("/admin.html")
 def serve_admin():
@@ -185,14 +185,16 @@ def register_user():
             return jsonify({"ok":True, "user":user, "is_new":False})
 
         ref = normalize_address(d.get("referral_code",""))
+        
+        # CREAZIONE NUOVO UTENTE
         new_u = {
             "wallet_address": wallet, 
             "username": d.get("username",""), 
             "first_name": d.get("first_name","Gladiator"),
             "coins": 500, "season_coins": 500, "sprint_coins": 0, 
             "tap_power": 1, "referral_count": 0, "streak": 0, 
-            "energy": MAX_ENERGY, "last_energy_update": now_iso()
-            "referred_by": ref if ref and ref != wallet else None
+            "energy": MAX_ENERGY, "last_energy_update": now_iso(),
+            "referred_by": ref if (ref and ref != wallet) else None # FIX REFERRAL
         }
         
         created, err = sb_insert("users", new_u)
@@ -201,10 +203,15 @@ def register_user():
             return jsonify({"ok":True, "user":user, "is_new":False})
         if err: return jsonify({"ok":False, "error":str(err)[:100]}), 500
 
+        # AGGIORNA IL RECLUTATORE
         if ref and ref != wallet:
             ru = get_user_by_wallet(ref)
             if ru:
-                sb_patch("users", {"wallet_address":f"eq.{ref}"}, {"coins":ru["coins"]+1000, "season_coins":ru.get("season_coins",0)+1000, "referral_count":ru.get("referral_count",0)+1})
+                sb_patch("users", {"wallet_address":f"eq.{ref}"}, {
+                    "coins":ru["coins"]+1000, 
+                    "season_coins":ru.get("season_coins",0)+1000, 
+                    "referral_count":ru.get("referral_count",0)+1
+                })
         
         return jsonify({"ok":True, "user":created, "is_new":True}), 201
     except Exception as e:
@@ -286,11 +293,12 @@ def claim_daily():
         
         sb_patch("users", {"wallet_address":f"eq.{wallet}"}, {"coins":nc, "season_coins":ns, "streak":streak, "last_claim":now.isoformat()})
         
+        # REFERRAL PASSIVE INCOME 5%
         ref = user.get("referred_by")
         if ref:
             ru = get_user_by_wallet(ref)
             if ru:
-                p = int(bonus*0.05)
+                p = int(bonus * 0.05)
                 sb_patch("users", {"wallet_address":f"eq.{ref}"}, {"coins":ru["coins"]+p, "season_coins":ru.get("season_coins",0)+p})
         
         return jsonify({"ok":True, "coins_earned":bonus, "coins":nc, "streak":streak})
