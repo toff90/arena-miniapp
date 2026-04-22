@@ -714,7 +714,7 @@ def get_redfo_balance(address):
     try:
         data = f"{BALANCEOF_SIG}{'0'*24}{address[2:].lower()}"
         r = req.post(AVAX_RPC, json={"jsonrpc":"2.0","method":"eth_call","params":[{"to":REDFO_TOKEN_ADDR,"data":data},"latest"],"id":3}, timeout=5)
-        if r.ok: return int(r.json().get("result","0x0"),16)
+        if r.ok: return int(r.json().get("result","0x0"),16) / 1e18
     except Exception as e: logger.warning(f"REDFO balance RPC failed: {e}")
     return 0
 
